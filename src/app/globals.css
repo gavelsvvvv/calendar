@@ -1,0 +1,831 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Polymarket Calendar design tokens.
+ *
+ * Light and dark are authored independently rather than one being an inversion
+ * of the other: light sits on a warm-neutral page with a true-white calendar
+ * surface, dark sits on a deep neutral with the surface *raised* above it. Both
+ * keep borders quiet and let the category accents do the categorising.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * A phone that is short as well as narrow.
+ *
+ * The spec sheet for an iPhone 15 says 852px tall; Safari with its URL bar and
+ * toolbar showing hands the page 659, and an SE hands it 553. That is where the
+ * month grid and the day list underneath it stop both fitting, so a handful of
+ * paddings tighten here — and only here, because on a 852px phone the same
+ * tightening would be a smaller calendar for no reason.
+ *
+ * `639.98px` rather than `639px` to sit exactly under Tailwind's `sm` (40rem),
+ * and plain min/max rather than range syntax so it needs no Safari 16.4.
+ */
+@custom-variant short-phone (@media (max-width: 639.98px) and (max-height: 699.98px));
+
+:root {
+  /* Page sits slightly back; the calendar surface comes forward. */
+  --background: oklch(0.985 0.001 265);
+  --surface: oklch(1 0 0);
+  --surface-sunken: oklch(0.972 0.002 265);
+  --surface-hover: oklch(0.975 0.003 264);
+
+  --foreground: oklch(0.21 0.006 264);
+  --muted-foreground: oklch(0.53 0.012 264);
+  --subtle-foreground: oklch(0.66 0.01 264);
+
+  --border: oklch(0.906 0.003 265);
+  --border-strong: oklch(0.86 0.006 264);
+
+  /* Restrained blue, in the family of Polymarket's own without copying it. */
+  --accent: oklch(0.53 0.17 258);
+  --accent-foreground: oklch(1 0 0);
+  --accent-soft: oklch(0.95 0.03 254);
+
+  --today: oklch(0.53 0.17 258);
+  --outside-month: oklch(0.968 0.003 265);
+
+  --ring: oklch(0.56 0.17 254 / 0.55);
+
+  --radius: 0.5rem;
+
+  /* Shell geometry, shared by the app bar, sidebar and sticky headings. */
+  --app-bar-height: 56px;
+  --sidebar-width: 256px;
+
+  /*
+   * Motion.
+   *
+   * Three durations, because more than three and nothing feels deliberate.
+   * Quick is for things under the cursor that must not lag behind it; base is
+   * for surfaces appearing; slow is the longest anything here is allowed to
+   * take. The easing is asymmetric on purpose — arriving decelerates so it
+   * settles, leaving is near-linear so it gets out of the way.
+   */
+  --dur-quick: 150ms;
+  --dur-base: 180ms;
+  --dur-slow: 220ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /*
+   * Event-density tints for the month grid.
+   *
+   * A heat ramp, not a scale of one colour. It travels cool to warm —
+   * lavender, mauve, peach, coral — because that is the shape a reader already
+   * understands from every other heatmap they have seen, and because four
+   * steps of one hue is a choice between "too subtle to read" and "too heavy to
+   * put text on". Three shades of blue was both.
+   *
+   * Two anchors and two points between them, so it is a ramp rather than a
+   * rainbow: nothing here is a primary, chroma never passes 0.084, and every
+   * step stays above 0.89 lightness so a day number and an event chip sit on it
+   * at full contrast.
+   */
+  --density-low: oklch(0.976 0.013 300);
+  --density-medium: oklch(0.957 0.030 340);
+  --density-high: oklch(0.937 0.052 45);
+  --density-extreme: oklch(0.914 0.072 38);
+  /* The second stop of each cell's gradient — a touch deeper, top to bottom. */
+  --density-low-to: oklch(0.968 0.017 300);
+  --density-medium-to: oklch(0.945 0.038 340);
+  --density-high-to: oklch(0.923 0.063 42);
+  --density-extreme-to: oklch(0.898 0.085 34);
+
+  /*
+   * Today is the date number, and almost nothing else.
+   *
+   * The bar and the lifted surface it used to carry made the busiest-looking
+   * cell on the grid the one that happened to be today, which is a lot of
+   * emphasis for a fact the reader already knows. What survives is the
+   * treatment every calendar uses — the number in a filled disc — plus a
+   * hairline of accent on the cell's own border, enough to find it in
+   * peripheral vision and not enough to lead the page.
+   */
+  --today-border: oklch(0.58 0.17 258 / 0.5);
+  --today-number: oklch(0.58 0.17 258);
+
+  /*
+   * Text on an event that has already happened.
+   *
+   * Three tokens rather than one, because a chip's row is three tiers — title,
+   * time, volume — and folding the lower two together forces one of them the
+   * wrong way: a single "past muted" dark enough to dim the time is *darker*
+   * than the live subtle it also has to replace, so the volume of a finished
+   * event would come out louder than a live one's.
+   *
+   * Every value moves toward the page, never past it: on light each is lighter
+   * than the live token it stands in for, on dark each is dimmer. That is what
+   * keeps "finished" reading the same way in both themes.
+   *
+   * Measured, not guessed — the title lands near 6.4:1 on the day cell against
+   * the live title's 16.4:1. Plainly receded, still comfortably past AA.
+   */
+  --past-foreground: oklch(0.43 0.008 265);
+  --past-muted-foreground: oklch(0.54 0.009 265);
+  --past-subtle-foreground: oklch(0.65 0.008 265);
+  /*
+   * A finished event sits on its own ground.
+   *
+   * Colour alone was doing all the work and it was not enough to read at a
+   * glance: a grey title among black ones is a difference you find by
+   * comparing, not one you see. A settled surface and a hairline give the row
+   * an edge, so "this has already happened" arrives before you have read
+   * anything. Kept close to the page — this is a recessed panel, not a
+   * highlight, and a month cell can hold three of them.
+   */
+  /*
+   * The settled ground, lightened from 0.955 after a measurement.
+   *
+   * A past event's *secondary* line — "Sports · $352K volume · 90 markets" —
+   * is `--past-muted-foreground` on this surface, and that pairing came out at
+   * 4.23:1, under AA for small text. The ink could not absorb the fix: it sits
+   * at 0.54 against a live `--muted-foreground` of 0.53, and darkening it past
+   * that would stop a past event receding from a live one, which is the whole
+   * point of the treatment. So the surface gave way instead. 0.972 against a
+   * white page is still a visible tint, and `--past-border` carries the rest
+   * of the distinction.
+   *
+   * Only became reachable once resolved markets started being dated when they
+   * resolved: the agenda went from a handful of past rows to 129, and the
+   * combination had simply never been on screen before.
+   */
+  --past-surface: oklch(0.972 0.003 265);
+  --past-border: oklch(0.885 0.004 265);
+
+  /* The dot on an empty day. Barely there by design. */
+  --empty-mark: oklch(0.88 0.004 265);
+}
+
+
+.dark {
+  --background: oklch(0.155 0.005 264);
+  --surface: oklch(0.196 0.006 264);
+  --surface-sunken: oklch(0.173 0.005 264);
+  --surface-hover: oklch(0.232 0.007 264);
+
+  /* Not pure white — full-contrast text everywhere is fatiguing at night. */
+  --foreground: oklch(0.93 0.004 264);
+  --muted-foreground: oklch(0.68 0.011 264);
+  --subtle-foreground: oklch(0.55 0.011 264);
+
+  --border: oklch(0.272 0.008 264);
+  --border-strong: oklch(0.34 0.01 264);
+
+  --accent: oklch(0.65 0.16 254);
+  --accent-foreground: oklch(0.16 0.01 264);
+  --accent-soft: oklch(0.28 0.06 254);
+
+  --today: oklch(0.68 0.15 254);
+  --outside-month: oklch(0.168 0.005 264);
+
+  --ring: oklch(0.65 0.16 254 / 0.6);
+
+  /*
+   * Dark is authored, not derived. Taking the light ramp and dropping its
+   * opacity gives four muddy greys, because what carries a tint on white is
+   * lightness and what carries it at 0.2 is chroma.
+   *
+   * So this is its own ramp through the same cool-to-warm story in materials
+   * that exist at night: violet graphite, plum, burgundy, then an amber-brown
+   * that reads as embers rather than as a light being switched on. Chroma is
+   * capped at 0.072 and lightness at 0.318 — enough to be unmistakably coloured,
+   * nowhere near enough to glow.
+   */
+  --density-low: oklch(0.228 0.020 300);
+  --density-medium: oklch(0.258 0.036 330);
+  --density-high: oklch(0.288 0.050 25);
+  --density-extreme: oklch(0.315 0.055 52);
+  --density-low-to: oklch(0.218 0.024 300);
+  --density-medium-to: oklch(0.246 0.042 330);
+  --density-high-to: oklch(0.274 0.058 25);
+  --density-extreme-to: oklch(0.296 0.066 50);
+
+  --today-border: oklch(0.72 0.15 254 / 0.55);
+  --today-number: oklch(0.72 0.15 254);
+
+  /* Dark runs the other way: receding means dimming, so each of these sits
+     below the live token it replaces rather than above it. */
+  /*
+   * Lifted from 0.58 / 0.53 / 0.45 after measuring the same pairing that moved
+   * the light palette: a past event's secondary line against `--past-surface`
+   * came out at 3.82:1, and its title at 4.69:1. Receding in a dark theme means
+   * getting *dimmer*, so the ceiling here is the live `--muted-foreground` at
+   * 0.68 rather than a floor — these stay comfortably under it while clearing
+   * AA on the settled ground. The three keep their order: a past title is still
+   * brighter than its own secondary line.
+   */
+  --past-foreground: oklch(0.66 0.008 264);
+  --past-muted-foreground: oklch(0.60 0.009 264);
+  --past-subtle-foreground: oklch(0.52 0.008 264);
+  /* Dark sinks rather than shades: the surface goes *below* the page, which is
+     the same "settled" reading arrived at from the other side. */
+  --past-surface: oklch(0.128 0.004 264);
+  --past-border: oklch(0.235 0.006 264);
+
+  --empty-mark: oklch(0.3 0.006 264);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-hover: var(--surface-hover);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-today: var(--today);
+  --color-outside-month: var(--outside-month);
+  --color-density-low: var(--density-low);
+  --color-density-medium: var(--density-medium);
+  --color-density-high: var(--density-high);
+  --color-density-extreme: var(--density-extreme);
+  --color-today-border: var(--today-border);
+  --color-today-number: var(--today-number);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-sans-family), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    /* Tabular figures keep day numbers and percentages from jittering. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* One consistent, always-visible focus treatment. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background-color: var(--accent-soft);
+  }
+}
+
+@layer utilities {
+  /* Thin, unobtrusive scrollbars inside day popovers and side panels. */
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border-radius: 9999px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /*
+   * An event that has already happened.
+   *
+   * Fading it to 60% made it *lighter* than everything around it, which on a
+   * pale surface is the same direction as "less ink" and reads as faint rather
+   * than as finished — and the separation between upcoming, live and past was
+   * too slight to scan. So the colour is drained instead: the text drops to a
+   * dedicated grey a clear step below the live foreground, the category dot and
+   * any chip tint lose most of their saturation, and only a little transparency
+   * remains.
+   *
+   * Redefining the palette variables rather than `color` is what makes this
+   * reach a subtree whose spans each name their own colour utility — the title
+   * is `text-foreground`, the time `text-muted-foreground`, the volume
+   * `text-subtle-foreground`, and one rule here moves all three.
+   *
+   * It has to be `--foreground` and not `--color-foreground`: the theme block
+   * is `@theme inline`, which *dereferences* — `text-foreground` compiles to
+   * `color: var(--foreground)` and never mentions `--color-foreground` at all,
+   * so overriding the `--color-*` name silently does nothing.
+   *
+   * `inherit` is how hover puts them back. `initial` would leave the custom
+   * property guaranteed-invalid, `var(--foreground)` would then resolve to
+   * nothing and `color` would fall over into whatever it inherits; taking the
+   * parent's computed value gets the live theme colour exactly, in both themes,
+   * without restating either palette here.
+   *
+   * Nothing in this rule touches pointer events: a past event opens exactly
+   * like any other, and hover or keyboard focus restores it in full. A viewer
+   * who has asked their system for more contrast never sees it dimmed.
+   */
+  .is-past {
+    --foreground: var(--past-foreground);
+    --muted-foreground: var(--past-muted-foreground);
+    --subtle-foreground: var(--past-subtle-foreground);
+    /*
+     * No `opacity` here. It used to be the whole treatment, and it is what a
+     * measurement caught: fading dark text toward a pale page composites to
+     * about the same grey the palette above now names outright, so the two
+     * together simply cancelled — the chip had a darker colour applied and
+     * then most of it faded back out. Naming the grey is exact and survives
+     * both themes; fading is neither.
+     *
+     * `saturate` stays, and only because it does something the colours cannot:
+     * it drains the category dot, the star and a major event's tinted bar
+     * without touching their near-neutral text. Not lower than this — below
+     * `sm` the chip *is* its dot, and a fully grey one loses the category.
+     */
+    filter: saturate(0.6);
+    /*
+     * And its own ground. Colour alone was a difference you found by comparing
+     * two titles; a settled surface and a hairline is one you see before
+     * reading either. `inset 0 0 0 1px` rather than `border`, because a border
+     * would add a pixel to a chip living in a fixed-height grid row and nudge
+     * every sibling under it.
+     */
+    background-color: var(--past-surface);
+    box-shadow: inset 0 0 0 1px var(--past-border);
+    transition:
+      filter 150ms ease,
+      background-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  /*
+   * A past chip below `sm` is only its category dot, and a grey panel behind a
+   * 5px dot is grime rather than information. The month grid's phone layout
+   * lists its titles in the schedule underneath, where the treatment applies in
+   * full.
+   */
+  @media (width < 40rem) {
+    .is-past[data-event-past] {
+      background-color: transparent;
+      box-shadow: none;
+    }
+  }
+
+  .is-past:hover,
+  .is-past:focus-visible,
+  .is-past:focus-within {
+    --foreground: inherit;
+    --muted-foreground: inherit;
+    --subtle-foreground: inherit;
+    /* `saturate(1)`, not `none`: two filter lists of the same shape
+       interpolate, and a keyword would snap the colour back instead. */
+    filter: saturate(1);
+    background-color: transparent;
+    box-shadow: none;
+  }
+
+  @media (prefers-contrast: more) {
+    .is-past {
+      --foreground: inherit;
+      --muted-foreground: inherit;
+      --subtle-foreground: inherit;
+      filter: saturate(1);
+      background-color: transparent;
+      box-shadow: none;
+    }
+  }
+
+  /*
+   * Day-cell surfaces.
+   *
+   * Gradients rather than flat fills, running top-to-bottom over a very short
+   * range. It is barely perceptible on any single cell and that is the point:
+   * across a grid it gives each day a little depth, so the busy ones read as
+   * raised rather than merely darker.
+   *
+   * Written as utilities rather than Tailwind arbitrary values because each is
+   * two custom properties, and inlining that four times in a className is how
+   * the precedence between them stops being obvious.
+   */
+  .day-density-low {
+    background-image: linear-gradient(to bottom, var(--density-low), var(--density-low-to));
+  }
+  .day-density-medium {
+    background-image: linear-gradient(
+      to bottom,
+      var(--density-medium),
+      var(--density-medium-to)
+    );
+  }
+  .day-density-high {
+    background-image: linear-gradient(to bottom, var(--density-high), var(--density-high-to));
+  }
+  .day-density-extreme {
+    background-image: linear-gradient(
+      to bottom,
+      var(--density-extreme),
+      var(--density-extreme-to)
+    );
+  }
+
+  /*
+   * Every tint is two stops of the same shape, so a browser interpolates
+   * between them and a filter that changes a day's density reads as a change
+   * rather than a cut. 180ms, and only colour — nothing here touches layout.
+   */
+  .day-density-low,
+  .day-density-medium,
+  .day-density-high,
+  .day-density-extreme {
+    transition-property: background-color, background-image;
+    transition-duration: var(--dur-base);
+    transition-timing-function: var(--ease-out);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .day-density-low,
+    .day-density-medium,
+    .day-density-high,
+    .day-density-extreme {
+      transition-duration: 0.01ms;
+    }
+  }
+
+  /*
+   * Today.
+   *
+   * A filled disc on the date number, and a one-pixel accent line inside the
+   * cell's own edge. No surface of its own, so a busy today still reads as busy
+   * and the heatmap keeps meaning what it says.
+   *
+   * The line is a pseudo-element rather than a border: a border would change
+   * the cell's box and shift its contents by a pixel relative to every
+   * neighbour, and an inset `box-shadow` would collide with selection, which is
+   * a Tailwind `ring-inset` — also a box-shadow, so one of the two would
+   * silently win. As a pseudo-element it simply sits underneath the selection
+   * ring, and both can be read at once.
+   */
+  .day-today::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px var(--today-border);
+  }
+}
+
+/*
+ * Onboarding illustrations.
+ *
+ * One 3.4s timeline, shared by all three, so the three screens move at the same
+ * tempo instead of each inventing its own. Six beats:
+ *
+ *   0–7%     fade in
+ *   7–22%    beat A — the primary form arrives
+ *   24–38%   beat B
+ *   26–50%   draw — connector strokes trace themselves
+ *   40–54%   beat C — structure (headers, rules, chrome)
+ *   52–82%   the contents stagger in, five steps
+ *   82–92%   rest
+ *   92–100%  fade out, and the geometric reset happens behind it
+ *
+ * EVERY rule below is written so the *base* style is the finished illustration
+ * and the keyframes describe only the journey to it. That is what makes reduced
+ * motion correct rather than blank: the global block collapses the duration to
+ * 0.01ms with no fill, so the element falls straight back to its base — the last
+ * frame of the animation, which is the static illustration the brief asks for.
+ * Author a keyframe that ends anywhere else and reduced motion breaks silently.
+ */
+.art-loop {
+  animation: art-loop 3400ms linear infinite;
+}
+@keyframes art-loop {
+  0%,
+  3% {
+    opacity: 0;
+  }
+  7%,
+  92% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/*
+ * The morph.
+ *
+ * SVG geometry properties are real CSS properties, so a rect can interpolate
+ * from a 104px app-icon tile to a 304px calendar card — an actual shape change
+ * rather than two shapes cross-faded, which is the difference between "the mark
+ * becomes a calendar" and "the mark disappears and a calendar appears".
+ */
+.art-frame {
+  animation: art-frame 3400ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes art-frame {
+  0%,
+  12% {
+    x: 128px;
+    y: 64px;
+    width: 104px;
+    height: 104px;
+    rx: 26px;
+  }
+  40%,
+  100% {
+    x: 28px;
+    y: 18px;
+    width: 304px;
+    height: 196px;
+    rx: 18px;
+  }
+}
+
+/*
+ * The lockup inside the tile, on its way out as the card opens up.
+ *
+ * `opacity: 0` in the base, not only in the keyframes — this is the one element
+ * whose finished state is *absent*, and leaving the base at 1 left the wordmark
+ * stamped across the middle of the calendar for every reduced-motion viewer.
+ */
+/*
+ * `linear`, not `--ease-out`, and the same for every other cross-fade below.
+ *
+ * The house easing is cubic-bezier(0.16, 1, 0.3, 1), which is ~99% resolved a
+ * quarter of the way through its window. That is exactly right for something
+ * arriving and settling, and exactly wrong for a hand-off: it turned a 14%-wide
+ * fade into a cut, and left the card empty for the rest of the window. Opacity
+ * hand-offs are linear; only the translations keep the deceleration.
+ */
+.art-mark {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: art-mark 3400ms linear infinite;
+}
+@keyframes art-mark {
+  /* Held across the whole morph and handed off exactly as it completes, so the
+     card is never a blank rectangle waiting to be furnished. */
+  0%,
+  26% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  40%,
+  100% {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+}
+
+.art-a {
+  animation: art-a 3400ms var(--ease-out) infinite;
+}
+@keyframes art-a {
+  0%,
+  7% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  22%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.art-b {
+  animation: art-b 3400ms var(--ease-out) infinite;
+}
+@keyframes art-b {
+  0%,
+  24% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  38%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.art-c {
+  animation: art-c 3400ms linear infinite;
+}
+@keyframes art-c {
+  /*
+   * Not before 38%: this beat draws chrome at the *finished* card's
+   * coordinates, and the frame is only that size at 40%. Start it earlier and
+   * the header rule hangs out past a card that hasn't grown into it yet.
+   */
+  0%,
+  38% {
+    opacity: 0;
+  }
+  52%,
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Connector strokes trace themselves. `pathLength="1"` on the path makes the
+   dash arithmetic independent of how long the curve actually is. */
+/* A trace wants an even hand — the house easing would draw nine tenths of the
+   curve in the first quarter of the window and crawl the rest. */
+.art-draw {
+  animation: art-draw 3400ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes art-draw {
+  0%,
+  26% {
+    stroke-dashoffset: 1;
+  }
+  50%,
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/*
+ * The five-step stagger.
+ *
+ * Five explicit keyframe sets rather than one plus `animation-delay`: a delay on
+ * a looping animation shifts *both* ends of the cycle, so the later cards would
+ * still be on screen while the next loop was drawing its logo. Sharing one
+ * timeline and moving the stops is the only version that stays in step.
+ */
+.art-in-1,
+.art-in-2,
+.art-in-3,
+.art-in-4,
+.art-in-5 {
+  animation-duration: 3400ms;
+  animation-timing-function: var(--ease-out);
+  animation-iteration-count: infinite;
+}
+.art-in-1 {
+  animation-name: art-in-1;
+}
+.art-in-2 {
+  animation-name: art-in-2;
+}
+.art-in-3 {
+  animation-name: art-in-3;
+}
+.art-in-4 {
+  animation-name: art-in-4;
+}
+.art-in-5 {
+  animation-name: art-in-5;
+}
+@keyframes art-in-1 {
+  0%,
+  52% {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  62%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes art-in-2 {
+  0%,
+  57% {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  67%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes art-in-3 {
+  0%,
+  62% {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  72%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes art-in-4 {
+  0%,
+  67% {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  77%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes art-in-5 {
+  0%,
+  72% {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  82%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The panel the illustration sits on: one soft accent bloom from the top edge,
+   no hard boundary of its own. */
+.art-wash {
+  background-image: radial-gradient(115% 85% at 50% 0%, var(--accent-soft), transparent 62%);
+}
+
+/*
+ * The Trending button's border: orange, and never quite the same orange.
+ *
+ * Two backgrounds in one declaration, clipped differently. The fill is painted
+ * to `padding-box` and the gradient to `border-box`, so the gradient shows only
+ * in the 1px the transparent border leaves behind. That is what keeps it a
+ * *border* rather than a glow, and — unlike `border-image` — it follows the
+ * button's own `border-radius` instead of squaring off the corners.
+ *
+ * The fill has to match whatever is actually behind the button, or the trick
+ * shows: the app bar is `--surface`, and Radix stamps `data-state="open"` on
+ * the trigger while the popover is up, when the button sits on `--surface-sunken`.
+ *
+ * Four stops around the conic sweep — gold, orange, vermilion, amber — so the
+ * colour travels rather than pulsing between two tones. Chroma is capped at 0.20
+ * and none of the stops is a pure saturated orange: this is a hairline on a
+ * calendar, not a highlight.
+ */
+@property --iris-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.iridescent-orange {
+  --iris-fill: var(--surface);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--iris-fill), var(--iris-fill)) padding-box,
+    conic-gradient(
+        from var(--iris-angle),
+        oklch(0.83 0.13 88),
+        oklch(0.72 0.18 52),
+        oklch(0.66 0.20 32),
+        oklch(0.76 0.16 66),
+        oklch(0.83 0.13 88)
+      )
+      border-box;
+  /*
+   * Slow enough to be noticed only if you look. The reduced-motion block below
+   * collapses this to a single 0.01ms pass, which lands on the 360deg keyframe —
+   * indistinguishable from 0deg on a conic sweep, so the fallback is the same
+   * border standing still rather than a missing one.
+   */
+  animation: iris-spin 9s linear infinite;
+}
+
+.iridescent-orange[data-state="open"] {
+  --iris-fill: var(--surface-sunken);
+}
+
+@keyframes iris-spin {
+  to {
+    --iris-angle: 360deg;
+  }
+}
+
+/* Respect a user's reduced-motion preference for every animation we add. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

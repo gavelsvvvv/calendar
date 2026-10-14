@@ -1,0 +1,16 @@
+# Security contact for calendarpolymarket.com
+#
+# This is an independent calendar of Polymarket prediction-market resolution
+# dates, built from Polymarket's public API. It is not affiliated with or
+# endorsed by Polymarket. Vulnerabilities in Polymarket itself should go to
+# Polymarket, not here.
+#
+# The site collects no accounts, no passwords and no personal data: there is no
+# authentication, no form, and no user record to compromise. Reports about this
+# deployment, its API or its calendar feeds are welcome.
+
+Contact: https://github.com/GraspStarfish45/calss/security/advisories/new
+Contact: https://github.com/GraspStarfish45/calss/issues
+Expires: 2027-12-31T23:59:59.000Z
+Preferred-Languages: en
+Canonical: https://calendarpolymarket.com/.well-known/security.txt
