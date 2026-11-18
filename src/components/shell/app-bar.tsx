@@ -3,6 +3,7 @@
 import { endOfWeek, format, isSameMonth, startOfWeek } from "date-fns";
 import { CalendarPlus, ChevronLeft, ChevronRight, HelpCircle, Menu, Search } from "lucide-react";
 import * as React from "react";
+import { PalettePicker } from "@/components/theme/palette-picker";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { WEEK_STARTS_ON } from "@/lib/calendar";
@@ -36,6 +37,10 @@ export type AppBarProps = {
 };
 
 function periodTitle(view: CalendarView, anchor: Date): string {
+  // Agenda is one day, and the bar is the only place its date is written in
+  // full — the panel's own heading is the other, and both are needed: the bar
+  // survives a scrolled panel, the heading survives a narrow one.
+  if (view === "agenda") return format(anchor, "EEE d MMMM yyyy");
   if (view !== "week") return format(anchor, "MMMM yyyy");
   const start = startOfWeek(anchor, { weekStartsOn: WEEK_STARTS_ON });
   const end = endOfWeek(anchor, { weekStartsOn: WEEK_STARTS_ON });
@@ -71,7 +76,7 @@ export function AppBar({
   onOpenSubscribe,
 }: AppBarProps) {
   const title = React.useMemo(() => periodTitle(view, anchor), [view, anchor]);
-  const unit = view === "week" ? "week" : "month";
+  const unit = view === "week" ? "week" : view === "agenda" ? "day" : "month";
 
   return (
     /*
@@ -221,6 +226,12 @@ export function AppBar({
 
         <div className="hidden md:block">
           <ViewSwitcher view={view} onChange={onViewChange} />
+        </div>
+
+        {/* From `md`, one tier earlier than the theme toggle beside it: the
+            grid it recolours is the tablet's main view too. */}
+        <div className="hidden md:block">
+          <PalettePicker />
         </div>
 
         <div className="hidden lg:block">

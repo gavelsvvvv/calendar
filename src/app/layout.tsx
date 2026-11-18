@@ -2,6 +2,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { paletteBootScript } from "@/lib/palette";
 import { TIME_ZONE_COOKIE } from "@/lib/timezone";
 import "./globals.css";
 
@@ -92,6 +93,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             __html: `try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z)document.cookie="${TIME_ZONE_COOKIE}="+encodeURIComponent(z)+";path=/;max-age=31536000;samesite=lax"}catch(e){}`,
           }}
         />
+        {/*
+          The reader's grid colours, restored before first paint — the same
+          reason, and the same place, as next-themes' light/dark class. From an
+          effect, a returning reader who chose Emerald would watch Aurora paint
+          first and then change. `suppressHydrationWarning` on <html> already
+          covers the attribute this adds.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: paletteBootScript() }} />
       </head>
       <body className="flex min-h-full flex-col bg-background">
         <ThemeProvider>{children}</ThemeProvider>

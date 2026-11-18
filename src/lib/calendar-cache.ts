@@ -1,6 +1,8 @@
 import { addMonths, startOfMonth } from "date-fns";
 import { getViewRange } from "./calendar";
 import type { CuratedDataset } from "./curation/dataset";
+import { NO_TARGETED_TIERS, tierKey } from "./curation/types";
+import type { TargetedTiers } from "./curation/types";
 import { fromMonthKey, toMonthKey } from "./dates";
 import type { CalendarView } from "./url-state";
 
@@ -58,21 +60,32 @@ export type MonthEntry = {
 export const MONTH_TTL_MS = 5 * 60 * 1000;
 
 /**
- * `2026-09|curated`, or `2026-09|curated+deep`.
+ * `2026-09|curated`, or `2026-09|curated+sports`, or `2026-09|curated+esports,sports`.
  *
  * Two dimensions beyond the month, and neither is a filter. "Smaller markets"
- * is a different calendar; `deep` is the same calendar plus the Sport/eSport
- * sub-filter tier, which is a different *response* — roughly twice the bytes,
- * fetched only once a reader has named a sport. Keeping them in the key is what
- * lets a reader flip between "All Sports" and "Tennis only" without either
- * request clobbering the other's cached month.
+ * is a different calendar; the tier suffix is the same calendar plus one or
+ * both Sport/eSport sub-filter tiers, which is a different *response* — more
+ * bytes, fetched only once a reader has named a sport. Keeping them in the key
+ * is what lets a reader flip between "All Sports" and "Tennis only" without
+ * either request clobbering the other's cached month.
+ *
+ * The tier suffix is `tierKey`'s output and never a sport id, so the key space
+ * is eight values per month rather than one per subset — and, crucially, Sport
+ * and eSport occupy *separate* segments of it. They used to share one `+deep`
+ * flag: narrowing eSport wrote its response over the entry a narrowed Sport had
+ * built, and both readers then saw the other's coverage.
  */
+function kindOf(includeSmaller: boolean): string {
+  return includeSmaller ? "small" : "curated";
+}
+
 export function monthCacheKey(
   monthKey: string,
   includeSmaller: boolean,
-  deep = false,
+  targeted: TargetedTiers = NO_TARGETED_TIERS,
 ): string {
-  return `${monthKey}|${includeSmaller ? "small" : "curated"}${deep ? "+deep" : ""}`;
+  const tier = tierKey(targeted);
+  return `${monthKey}|${kindOf(includeSmaller)}${tier ? `+${tier}` : ""}`;
 }
 
 /**
@@ -130,6 +143,86 @@ export function readMonth(key: string): MonthEntry {
   return months.get(key) ?? EMPTY;
 }
 
+/**
+ * The other tiers of the same month, richest first, as a stand-in.
+ *
+ * Order is "most events first" so the substitute is the least-wrong one
+ * available, but any of them is safe: `matchesSubFilter` gates every
+ * `targetedOnly` event on the reader's *current* selection, so a stand-in that
+ * carries a tier the reader has not asked for cannot show it.
+ */
+const FALLBACK_TIERS = ["+esports,sports", "+sports", "+esports", ""] as const;
+
+/**
+ * This month at this tier — or, until that has landed, the best month we hold.
+ *
+ * **This is the fix for a blank calendar, and the bug was subtle.** Ticking one
+ * sport flips the tier, which changes the cache key, and a key that has never
+ * been fetched has no dataset. The hook read that entry, found `undefined`, and
+ * rendered `EMPTY_EVENTS` — so narrowing Sport to Tennis emptied *every*
+ * category on the grid, politics and crypto included, until the new response
+ * landed, and permanently if it 429'd or failed. The comment in the hook
+ * claimed the calendar "keeps rendering the data it already has"; nothing
+ * implemented that, and this is it.
+ *
+ * `loading` and `error` are always the *wanted* key's, never the stand-in's, so
+ * the spinner tracks the request actually in the air and a failure is still
+ * reported rather than hidden behind older data. `fallback` says which of the
+ * two is on screen, for callers that need to tell them apart.
+ */
+export function readMonthFor(
+  monthKey: string,
+  includeSmaller: boolean,
+  targeted: TargetedTiers = NO_TARGETED_TIERS,
+): MonthEntry & { fallback: boolean } {
+  const wanted = months.get(monthCacheKey(monthKey, includeSmaller, targeted)) ?? EMPTY;
+  if (wanted.dataset) {
+    return {
+      dataset: wanted.dataset,
+      storedAt: wanted.storedAt,
+      loading: wanted.loading,
+      error: wanted.error,
+      fallback: false,
+    };
+  }
+
+  /*
+   * Same kind first, then the other one.
+   *
+   * The second pass is the fix for "Show all" turning the page white. The
+   * toggle flips `includeSmaller`, which changes the *kind* in the key, and
+   * the fallback only ever searched tiers of the kind being asked for — so
+   * there was never anything to stand in, `isLoading` went true, and the whole
+   * calendar was swapped for a skeleton for the ten seconds a deep build takes.
+   *
+   * The other kind is as safe a stand-in as another tier: it is the same month,
+   * the dimmed `isRefreshing` treatment says it is being replaced, and going
+   * curated → small it is a subset of what is about to arrive, so nothing on
+   * screen is about to be contradicted — only joined.
+   */
+  const kinds = [kindOf(includeSmaller), kindOf(!includeSmaller)];
+  for (const kind of kinds) {
+    for (const tier of FALLBACK_TIERS) {
+      const candidate = months.get(`${monthKey}|${kind}${tier}`);
+      if (!candidate?.dataset) continue;
+      return {
+        dataset: candidate.dataset,
+        storedAt: candidate.storedAt,
+        loading: wanted.loading,
+        error: wanted.error,
+        fallback: true,
+      };
+    }
+  }
+
+  return {
+    storedAt: wanted.storedAt,
+    loading: wanted.loading,
+    error: wanted.error,
+    fallback: false,
+  };
+}
+
 export function isFresh(entry: MonthEntry, now = Date.now()): boolean {
   return entry.dataset !== undefined && now - entry.storedAt <= MONTH_TTL_MS;
 }
@@ -156,13 +249,16 @@ async function fetchMonth(
   key: string,
   monthKey: string,
   includeSmaller: boolean,
-  deep: boolean,
+  targeted: TargetedTiers,
   signal: AbortSignal,
 ): Promise<void> {
   const { start, end } = monthGridRange(monthKey);
   const params = new URLSearchParams({ start, end });
   if (includeSmaller) params.set("includeSmaller", "1");
-  if (deep) params.set("deep", "1");
+  // The canonical tier string, not the selection: which sports were ticked is
+  // the browser's business and never leaves it.
+  const tier = tierKey(targeted);
+  if (tier) params.set("targeted", tier);
 
   try {
     const response = await fetch(`/api/events?${params.toString()}`, { signal });
@@ -214,10 +310,10 @@ async function fetchMonth(
 export function ensureMonth(
   monthKey: string,
   includeSmaller: boolean,
-  deep = false,
+  targeted: TargetedTiers = NO_TARGETED_TIERS,
   options: { force?: boolean } = {},
 ): void {
-  const key = monthCacheKey(monthKey, includeSmaller, deep);
+  const key = monthCacheKey(monthKey, includeSmaller, targeted);
   const entry = months.get(key);
   if (entry?.loading) return;
   if (!options.force && entry && isFresh(entry)) return;
@@ -230,7 +326,7 @@ export function ensureMonth(
     controller,
   });
   publish();
-  void fetchMonth(key, monthKey, includeSmaller, deep, controller.signal);
+  void fetchMonth(key, monthKey, includeSmaller, targeted, controller.signal);
 }
 
 /**
@@ -245,10 +341,11 @@ export function ensureMonth(
 export function retainMonths(
   wanted: ReadonlySet<string>,
   includeSmaller: boolean,
-  deep = false,
+  targeted: TargetedTiers = NO_TARGETED_TIERS,
 ): void {
   let changed = false;
-  const wantedKind = `${includeSmaller ? "small" : "curated"}${deep ? "+deep" : ""}`;
+  const tier = tierKey(targeted);
+  const wantedKind = `${kindOf(includeSmaller)}${tier ? `+${tier}` : ""}`;
   for (const [key, entry] of months) {
     if (!entry.loading || !entry.controller) continue;
     const [monthKey, kind] = key.split("|");

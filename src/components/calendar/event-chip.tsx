@@ -1,6 +1,7 @@
 "use client";
 
 import { Star } from "lucide-react";
+import Image from "next/image";
 import * as React from "react";
 import { EventHoverCard } from "@/components/event/event-hover-card";
 import { useNow } from "@/hooks/use-now";
@@ -134,6 +135,10 @@ export const EventChip = React.memo(function EventChip({
           isMajor && cn("border-l-2 pl-1", category.chip, category.border),
           isImportant && !isMajor && "bg-surface-sunken font-medium",
           !isMajor && !isImportant && "hover:bg-surface-hover",
+          // A week chip floats over hour lines, so it reads as a card rather
+          // than a row: the same hairline-bordered treatment the day board's
+          // cards use. Major events keep their coloured left rule instead.
+          variant === "week" && !isMajor && "border border-border/70",
           isMajor && "font-medium",
           // Every surface treatment above is a desktop one; below `sm` the chip
           // is only its dot and a tinted background behind it reads as grime.
@@ -188,7 +193,26 @@ export const EventChip = React.memo(function EventChip({
             <Star className="size-2.5 shrink-0 fill-current" aria-hidden strokeWidth={0} />
           )}
 
-          <span className={cn("size-1.5 shrink-0 rounded-full", category.dot)} aria-hidden />
+          {/*
+            In a week, the market's artwork stands where the category dot would.
+            The same 16px of width either way — a dot plus its gap is about what
+            a 16px square costs — and a crest or a game logo identifies a
+            fixture faster than a colour does. The category is still on the
+            chip, as the left rule on major events and on the hover card; the
+            dot comes back only when there is no artwork to show.
+          */}
+          {variant === "week" && event.image ? (
+            <Image
+              src={event.image}
+              alt=""
+              width={16}
+              height={16}
+              sizes="16px"
+              className="size-4 shrink-0 rounded-sm object-cover"
+            />
+          ) : (
+            <span className={cn("size-1.5 shrink-0 rounded-full", category.dot)} aria-hidden />
+          )}
 
           <span className="min-w-0 flex-1 truncate text-[12px] leading-none text-foreground">
             {variant === "month" ? event.shortTitle : event.title}

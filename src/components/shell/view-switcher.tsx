@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Columns3, List, type LucideIcon } from "lucide-react";
+import { CalendarClock, CalendarDays, Columns3, type LucideIcon } from "lucide-react";
 import * as React from "react";
 import type { CalendarView } from "@/lib/url-state";
 import { cn } from "@/lib/utils";
@@ -8,11 +8,20 @@ import { cn } from "@/lib/utils";
 const VIEWS: ReadonlyArray<{ id: CalendarView; label: string; icon: LucideIcon }> = [
   { id: "month", label: "Month", icon: CalendarDays },
   { id: "week", label: "Week", icon: Columns3 },
-  { id: "agenda", label: "Agenda", icon: List },
+  /*
+   * "Day", not "Agenda", and a clock rather than a list.
+   *
+   * The view stopped being an agenda when it stopped being a month-long scroll
+   * of rows: it is now one day laid out against the hours, and both the old
+   * word and the bulleted-list glyph described the thing it used to be. The id
+   * stays `agenda` on purpose — it is in shared links and bookmarks, and
+   * renaming a label is not a reason to break one.
+   */
+  { id: "agenda", label: "Day", icon: CalendarClock },
 ];
 
 /**
- * Month / Week / Agenda. Purely a change of presentation — it reports the new
+ * Month / Week / Day. Purely a change of presentation — it reports the new
  * view and nothing else, so filters and the anchor date survive the switch.
  *
  * The selection is one element that slides between the three, rather than a

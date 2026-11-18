@@ -1,6 +1,7 @@
 "use client";
 
 import { startOfMonth } from "date-fns";
+import { Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import * as React from "react";
 import { AgendaView } from "@/components/calendar/agenda-view";
@@ -17,7 +18,7 @@ import { TimeZoneProvider } from "@/hooks/use-time-zone";
 import { useFirstVisit } from "@/hooks/use-first-visit";
 import { useIsDesktop, useIsLargeScreen, useIsPhone } from "@/hooks/use-media-query";
 import type { CuratedDataset } from "@/lib/curation/dataset";
-import { categorySelection } from "@/lib/curation/filters";
+import { categorySelection, targetedTiers } from "@/lib/curation/filters";
 import type { CuratedCalendarEvent } from "@/lib/curation/types";
 import { fromDayKey } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -202,6 +203,22 @@ function Calendar({
     setActiveEvent(event);
   }, []);
 
+  /**
+   * The same filter the sidebar's "Include smaller markets" checkbox drives,
+   * reachable from the day view where its absence is actually noticed.
+   *
+   * It is one filter, not two: flipping it here moves the sidebar checkbox and
+   * the URL's `smaller=1` with it, and the month is refetched under the other
+   * cache key. Giving the day view its own private copy would mean two
+   * datasets in flight and a reader who sees a match in one view and not in
+   * the next.
+   */
+  const toggleSmallerMarkets = React.useCallback(() => {
+    calendar.setFilters({
+      includeSmallerMarkets: !calendar.filters.includeSmallerMarkets,
+    });
+  }, [calendar]);
+
   const selectDay = React.useCallback(
     (dayKey: string) => {
       setSelectedDate(dayKey === calendar.selectedDate ? null : dayKey);
@@ -234,9 +251,12 @@ function Calendar({
 
   const navigateToDate = React.useCallback(
     (dayKey: string) => {
-      calendar.setAnchor(
-        calendar.view === "week" ? fromDayKey(dayKey) : startOfMonth(fromDayKey(dayKey)),
-      );
+      // Week and agenda anchor on a day, month on the 1st. Agenda in
+      // particular *is* its anchor — rounding to the month would send it to a
+      // different day than the one that was asked for.
+      const dayAnchored = calendar.view === "week" || calendar.view === "agenda";
+      const date = fromDayKey(dayKey);
+      calendar.setAnchor(dayAnchored ? date : startOfMonth(date));
       setSelectedDate(dayKey);
     },
     [calendar, setSelectedDate],
@@ -370,6 +390,24 @@ function Calendar({
             drawer and its own note is out of sight; on a desktop the unticked
             boxes are already visible next to it.
           */}
+          {/*
+            Said out loud, because ten seconds of a dimmed calendar reads as a
+            hang. Only for a real switch of build — the quiet revalidation every
+            few minutes dims too, and announcing that would be noise.
+          */}
+          {calendar.isSwitching && (
+            <p
+              data-calendar-hint="switching"
+              role="status"
+              className="flex shrink-0 items-center gap-1.5 px-1 text-[11px] text-muted-foreground"
+            >
+              <Loader2 className="size-3 shrink-0 motion-safe:animate-spin" aria-hidden />
+              {calendar.filters.includeSmallerMarkets
+                ? "Loading lower-volume markets — this takes a few seconds…"
+                : "Updating the calendar…"}
+            </p>
+          )}
+
           {noCategories && (
             <p
               data-calendar-hint="no-categories"
@@ -463,10 +501,10 @@ function Calendar({
             ) : (
               <AgendaView
                 anchor={calendar.anchor}
-                events={calendar.events}
                 eventsByDay={calendar.eventsByDay}
-                selectedDate={calendar.selectedDate}
-                onSelectDay={selectDay}
+                includeSmallerMarkets={calendar.filters.includeSmallerMarkets}
+                onToggleSmallerMarkets={toggleSmallerMarkets}
+                onGoToDay={navigateToDate}
                 onSelectEvent={openEvent}
               />
             )}
@@ -521,6 +559,10 @@ function Calendar({
       <EventDetails
         event={activeEvent}
         includeSmallerMarkets={calendar.filters.includeSmallerMarkets}
+        // Which build the event came from. A `targetedOnly` event only exists
+        // in one that asked for its category's tier, so its legs have to be
+        // fetched from the same one.
+        targeted={targetedTiers(calendar.filters)}
         open={activeEvent !== null}
         onOpenChange={(open) => !open && setActiveEvent(null)}
       />

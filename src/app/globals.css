@@ -72,28 +72,30 @@
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
 
   /*
-   * Event-density tints for the month grid.
+   * Event-density tints for the month grid — the "Violet" ramp.
    *
-   * A heat ramp, not a scale of one colour. It travels cool to warm —
-   * lavender, mauve, peach, coral — because that is the shape a reader already
-   * understands from every other heatmap they have seen, and because four
-   * steps of one hue is a choice between "too subtle to read" and "too heavy to
-   * put text on". Three shades of blue was both.
+   * Chosen by the owner from the palettes at the end of this file, by looking
+   * at the real grid. The original travelled cool to warm — lavender, mauve,
+   * peach, coral — and the warm half read as orange and pink on a page whose
+   * only accent is blue. This is the cool end of that ramp, kept, with the
+   * warm half removed: one indigo-violet that deepens with the day's load,
+   * drifting slightly bluer (292 → 285) as it goes so the busiest days lean
+   * toward the accent rather than away from it.
    *
-   * Two anchors and two points between them, so it is a ramp rather than a
-   * rainbow: nothing here is a primary, chroma never passes 0.084, and every
-   * step stays above 0.89 lightness so a day number and an event chip sit on it
-   * at full contrast.
+   * The lightness ladder is untouched — every step above 0.89 — so a day
+   * number and an event chip sit on any of them at full contrast. The other
+   * palettes, the original "ember" among them, stay selectable from the colour
+   * picker in the header.
    */
-  --density-low: oklch(0.976 0.013 300);
-  --density-medium: oklch(0.957 0.030 340);
-  --density-high: oklch(0.937 0.052 45);
-  --density-extreme: oklch(0.914 0.072 38);
+  --density-low: oklch(0.976 0.014 292);
+  --density-medium: oklch(0.957 0.030 290);
+  --density-high: oklch(0.937 0.048 288);
+  --density-extreme: oklch(0.914 0.066 285);
   /* The second stop of each cell's gradient — a touch deeper, top to bottom. */
-  --density-low-to: oklch(0.968 0.017 300);
-  --density-medium-to: oklch(0.945 0.038 340);
-  --density-high-to: oklch(0.923 0.063 42);
-  --density-extreme-to: oklch(0.898 0.085 34);
+  --density-low-to: oklch(0.968 0.018 292);
+  --density-medium-to: oklch(0.945 0.036 290);
+  --density-high-to: oklch(0.923 0.056 288);
+  --density-extreme-to: oklch(0.898 0.076 285);
 
   /*
    * Today is the date number, and almost nothing else.
@@ -107,6 +109,72 @@
    */
   --today-border: oklch(0.58 0.17 258 / 0.5);
   --today-number: oklch(0.58 0.17 258);
+
+  /*
+   * Glass — the material the Sport / eSport picker is made of.
+   *
+   * Two translucent layers with a job each, and the whole effect is the
+   * *difference* between them rather than either one alone.
+   *
+   * The **scrim** is a wash of the page's own `--background`, not a dark
+   * curtain. The picker is a small choice, and blacking out a calendar to ask
+   * which sports someone wants is a modal dialog's manners, not a filter's —
+   * the grid has to stay legible behind it, so this dims by collapsing contrast
+   * (a pale veil, plus `saturate` under 1 draining the density heat-ramp) and
+   * never by darkening. Only 5px of blur: enough that the page reads as *out of
+   * focus* rather than as merely faded, and not so much that a reader loses
+   * which month they were looking at.
+   *
+   * The **panel** then has to separate from that pale ground, which it does on
+   * three axes at once rather than by being darker: it is more opaque (0.78
+   * against 0.6), far more blurred (24px against 5), and it carries an edge and
+   * a cast shadow. Blur is what actually sells it — inside the panel the grid
+   * behind dissolves into colour, while the scrim outside still shows its
+   * shape, and that gap is what the eye reads as thickness.
+   *
+   * `saturate(1.7)` on the panel is the other half. Blurring alone averages
+   * colour toward grey and the result looks like frosted plastic; pushing
+   * chroma back up is what real glass does to what is behind it.
+   *
+   * Dark is authored separately below, as everything in this file is.
+   */
+  --glass-scrim: oklch(0.985 0.001 265 / 0.6);
+  --glass-scrim-blur: 5px;
+  --glass-scrim-saturate: 0.85;
+
+  --glass-panel: oklch(1 0 0 / 0.78);
+  --glass-panel-blur: 24px;
+  --glass-panel-saturate: 1.7;
+  /* A containing hairline, and a lit top edge where light enters the slab. */
+  --glass-panel-edge: oklch(0.21 0.006 264 / 0.09);
+  --glass-panel-sheen: oklch(1 0 0 / 0.7);
+  --glass-panel-cast: oklch(0.21 0.006 264 / 0.13);
+  --glass-panel-cast-far: oklch(0.21 0.006 264 / 0.2);
+
+  /*
+   * Tiles are alpha over the panel, never an opaque token.
+   *
+   * `--surface-hover` would paint a solid square in the middle of the glass —
+   * a hole, not a highlight. Every fill inside the panel is transparent so the
+   * blurred page shows through all of it at different strengths.
+   */
+  --glass-tile: oklch(1 0 0 / 0.5);
+  --glass-tile-hover: oklch(1 0 0 / 0.82);
+  --glass-tile-edge: oklch(0.21 0.006 264 / 0.07);
+  --glass-tile-on: oklch(0.53 0.17 258 / 0.1);
+  --glass-tile-on-edge: oklch(0.53 0.17 258 / 0.4);
+
+  /*
+   * A shadow under each logo chip.
+   *
+   * The chip is the one opaque thing on the panel — it has to be, because four
+   * of the nineteen marks are pure black silhouettes that need a light ground
+   * in both themes. An opaque white square with only a hairline, sitting on a
+   * translucent panel, reads as a hole punched through the glass; a hole is
+   * exactly the thing that casts no shadow, so giving it one is what puts it
+   * back *on top*.
+   */
+  --glass-chip-cast: oklch(0.21 0.006 264 / 0.18);
 
   /*
    * Text on an event that has already happened.
@@ -189,23 +257,54 @@
    * opacity gives four muddy greys, because what carries a tint on white is
    * lightness and what carries it at 0.2 is chroma.
    *
-   * So this is its own ramp through the same cool-to-warm story in materials
-   * that exist at night: violet graphite, plum, burgundy, then an amber-brown
-   * that reads as embers rather than as a light being switched on. Chroma is
-   * capped at 0.072 and lightness at 0.318 — enough to be unmistakably coloured,
-   * nowhere near enough to glow.
+   * So this is its own ramp, walking the same indigo-violet as the light one
+   * in materials that exist at night: a violet graphite deepening to ink. Chroma is capped near 0.07 and lightness at 0.318 — enough to
+   * be unmistakably coloured, nowhere near enough to glow.
    */
-  --density-low: oklch(0.228 0.020 300);
-  --density-medium: oklch(0.258 0.036 330);
-  --density-high: oklch(0.288 0.050 25);
-  --density-extreme: oklch(0.315 0.055 52);
-  --density-low-to: oklch(0.218 0.024 300);
-  --density-medium-to: oklch(0.246 0.042 330);
-  --density-high-to: oklch(0.274 0.058 25);
-  --density-extreme-to: oklch(0.296 0.066 50);
+  --density-low: oklch(0.228 0.022 292);
+  --density-medium: oklch(0.258 0.038 290);
+  --density-high: oklch(0.288 0.054 288);
+  --density-extreme: oklch(0.315 0.068 285);
+  --density-low-to: oklch(0.218 0.026 292);
+  --density-medium-to: oklch(0.246 0.044 290);
+  --density-high-to: oklch(0.274 0.062 288);
+  --density-extreme-to: oklch(0.296 0.076 285);
 
   --today-border: oklch(0.72 0.15 254 / 0.55);
   --today-number: oklch(0.72 0.15 254);
+
+  /*
+   * Glass, dark — the same construction with every polarity flipped.
+   *
+   * The scrim washes toward the page's own near-black rather than toward
+   * white, and `saturate` sits closer to 1: the dark grid is already low in
+   * chroma, so draining it further would leave the category dots unreadable
+   * rather than merely quiet.
+   *
+   * The edge is the flip that matters most. On light, a slab is contained by a
+   * *darker* hairline; on dark, light collects along the rim, so the same
+   * hairline has to be lighter than the panel or the panel loses its shape
+   * against the page entirely.
+   */
+  --glass-scrim: oklch(0.12 0.004 264 / 0.62);
+  --glass-scrim-blur: 5px;
+  --glass-scrim-saturate: 0.92;
+
+  --glass-panel: oklch(0.245 0.008 264 / 0.8);
+  --glass-panel-blur: 26px;
+  --glass-panel-saturate: 1.5;
+  --glass-panel-edge: oklch(1 0 0 / 0.1);
+  --glass-panel-sheen: oklch(1 0 0 / 0.1);
+  --glass-panel-cast: oklch(0 0 0 / 0.45);
+  --glass-panel-cast-far: oklch(0 0 0 / 0.55);
+
+  --glass-tile: oklch(1 0 0 / 0.055);
+  --glass-tile-hover: oklch(1 0 0 / 0.1);
+  --glass-tile-edge: oklch(1 0 0 / 0.08);
+  --glass-tile-on: oklch(0.65 0.16 254 / 0.16);
+  --glass-tile-on-edge: oklch(0.65 0.16 254 / 0.5);
+
+  --glass-chip-cast: oklch(0 0 0 / 0.45);
 
   /* Dark runs the other way: receding means dimming, so each of these sits
      below the live token it replaces rather than above it. */
@@ -762,6 +861,118 @@
 }
 
 /*
+ * The Sport / eSport picker's two glass layers, and its motion.
+ *
+ * ## Why this is CSS and not a string of Tailwind classes
+ *
+ * Two reasons, both measured rather than assumed.
+ *
+ * **The material** is a stack — a background, a `backdrop-filter` with two
+ * functions in it, an inset sheen, an inset hairline and three cast shadows —
+ * that has to flip wholesale between themes. Written as utilities it is a
+ * forty-class attribute repeated with `dark:` on half of it, where one edited
+ * alpha silently desynchronises the two. Written here it is one object with a
+ * name, and `.dark` re-points the tokens.
+ *
+ * **The motion** cannot be done in classes at all. `DialogContent` hardcodes
+ * `data-[state=open]:zoom-in-95`, and `twMerge` does *not* treat that as
+ * conflicting with `zoom-in-[0.96]` — verified: it returns both classes, so the
+ * winner would be Tailwind's emission order rather than the caller's intent.
+ * Setting the variable the keyframe actually reads is unambiguous. These rules
+ * are unlayered, exactly like `.iridescent-orange[data-state="open"]` below, so
+ * they outrank anything Tailwind emits into `@layer utilities` no matter how
+ * the utilities are ordered.
+ *
+ * Note what is *not* here: no `@keyframes` of our own. `tw-animate-css`'s
+ * `enter`/`exit` animate `transform`, while Tailwind v4 centres the dialog with
+ * `-translate-x-1/2` — which compiles to the separate `translate` property, not
+ * to `transform`. The two therefore compose, and a hand-written keyframe
+ * carrying its own `translate(-50%, -50%)` would double the centring and leave
+ * the panel resting a quarter of its own size up and to the left.
+ */
+.glass-scrim {
+  background-color: var(--glass-scrim);
+  -webkit-backdrop-filter: blur(var(--glass-scrim-blur)) saturate(var(--glass-scrim-saturate));
+  backdrop-filter: blur(var(--glass-scrim-blur)) saturate(var(--glass-scrim-saturate));
+}
+
+.glass-panel {
+  background-color: var(--glass-panel);
+  -webkit-backdrop-filter: blur(var(--glass-panel-blur)) saturate(var(--glass-panel-saturate));
+  backdrop-filter: blur(var(--glass-panel-blur)) saturate(var(--glass-panel-saturate));
+  /*
+   * Inset first, cast after, near before far.
+   *
+   * The two insets are the slab's own surface — a lit top edge and a hairline
+   * all the way round — and they must not be a `border`, which would add a
+   * pixel to a panel whose width is already worked out against its longest
+   * label. The three cast shadows are one soft light: a tight contact shadow so
+   * the panel touches the page, then two wide, weak ones that give it height
+   * without the grey halo a single big blur always produces.
+   */
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-panel-sheen),
+    inset 0 0 0 1px var(--glass-panel-edge),
+    0 1px 2px -1px var(--glass-panel-cast),
+    0 16px 32px -12px var(--glass-panel-cast),
+    0 40px 72px -32px var(--glass-panel-cast-far);
+}
+
+/*
+ * Opacity 0 -> 1, scale 0.96 -> 1, and a 4px rise. Out the same way, faster.
+ *
+ * 4px rather than the 8 a sheet would use: a centred panel is already where it
+ * is going, so more travel reads as a slide arriving from somewhere rather than
+ * as the thing settling into place. Leaving is `--dur-quick` and `--ease-in` —
+ * a dismissed surface should get out of the way, not be admired on the way out.
+ */
+.glass-panel[data-state="open"],
+.glass-scrim[data-state="open"] {
+  --tw-enter-opacity: 0;
+  --tw-enter-scale: 0.96;
+  --tw-enter-translate-y: 4px;
+  --tw-duration: var(--dur-slow);
+  --tw-ease: var(--ease-out);
+}
+
+.glass-panel[data-state="closed"],
+.glass-scrim[data-state="closed"] {
+  --tw-exit-opacity: 0;
+  --tw-exit-scale: 0.98;
+  --tw-exit-translate-y: 2px;
+  --tw-duration: var(--dur-quick);
+  --tw-ease: var(--ease-in);
+}
+
+/* The scrim only fades; scaling a full-viewport backdrop would show its edges. */
+.glass-scrim[data-state="open"] {
+  --tw-enter-scale: 1;
+  --tw-enter-translate-y: 0;
+}
+.glass-scrim[data-state="closed"] {
+  --tw-exit-scale: 1;
+  --tw-exit-translate-y: 0;
+}
+
+/*
+ * No `backdrop-filter`: then the transparency is a bug, not a style.
+ *
+ * Firefox shipped it in 103 and every current engine has it, but a reader
+ * behind a flag or on an old build would otherwise get a 78%-opaque panel with
+ * the calendar showing straight through the text. The fallback is the same
+ * design with the depth removed — near-opaque surfaces, same edges, same
+ * shadows — rather than a second design.
+ */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-scrim {
+    background-color: color-mix(in oklab, var(--background) 88%, transparent);
+  }
+  .glass-panel {
+    background-color: var(--surface);
+  }
+}
+
+/*
  * The Trending button's border: orange, and never quite the same orange.
  *
  * Two backgrounds in one declaration, clipped differently. The fill is painted
@@ -828,4 +1039,136 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/*
+ * Density palettes — the alternatives to Violet, chosen from the header.
+ *
+ * Each overrides only the eight `--density-*` stops, and every one keeps the
+ * lightness ladder the default is tuned on (light 0.976 → 0.898, dark 0.218 →
+ * 0.315). That ladder is what guarantees a day number and an event chip sit on
+ * any step at full contrast; only hue and chroma move here, so a palette can
+ * change how the month *feels* without changing whether it is readable.
+ *
+ * Selected by `data-palette` on <html>. The colour picker in the header writes
+ * it, and an inline script in the document head restores it before first paint
+ * so a returning reader never sees Violet flash first. No attribute means
+ * Violet, the default above. `:root.dark[...]` is one class heavier than
+ * `:root[...]` on purpose, so the dark stops win in dark mode whatever the
+ * source order.
+ */
+
+/* Ember — the original warm ramp: lavender, mauve, peach, coral by day;
+   violet graphite, plum, burgundy, amber-brown by night. Kept selectable. */
+:root[data-palette="ember"] {
+  --density-low: oklch(0.976 0.013 300);
+  --density-medium: oklch(0.957 0.030 340);
+  --density-high: oklch(0.937 0.052 45);
+  --density-extreme: oklch(0.914 0.072 38);
+  --density-low-to: oklch(0.968 0.017 300);
+  --density-medium-to: oklch(0.945 0.038 340);
+  --density-high-to: oklch(0.923 0.063 42);
+  --density-extreme-to: oklch(0.898 0.085 34);
+}
+:root.dark[data-palette="ember"] {
+  --density-low: oklch(0.228 0.020 300);
+  --density-medium: oklch(0.258 0.036 330);
+  --density-high: oklch(0.288 0.050 25);
+  --density-extreme: oklch(0.315 0.055 52);
+  --density-low-to: oklch(0.218 0.024 300);
+  --density-medium-to: oklch(0.246 0.042 330);
+  --density-high-to: oklch(0.274 0.058 25);
+  --density-extreme-to: oklch(0.296 0.066 50);
+}
+
+/* Ocean — one blue, rising. Shares a hue with the accent, so the grid and the
+   Today badge read as one system. */
+:root[data-palette="ocean"] {
+  --density-low: oklch(0.976 0.012 250);
+  --density-medium: oklch(0.957 0.026 250);
+  --density-high: oklch(0.937 0.044 252);
+  --density-extreme: oklch(0.914 0.062 254);
+  --density-low-to: oklch(0.968 0.016 250);
+  --density-medium-to: oklch(0.945 0.032 250);
+  --density-high-to: oklch(0.923 0.052 252);
+  --density-extreme-to: oklch(0.898 0.072 254);
+}
+:root.dark[data-palette="ocean"] {
+  --density-low: oklch(0.228 0.020 250);
+  --density-medium: oklch(0.258 0.036 251);
+  --density-high: oklch(0.288 0.052 252);
+  --density-extreme: oklch(0.315 0.066 254);
+  --density-low-to: oklch(0.218 0.024 250);
+  --density-medium-to: oklch(0.246 0.042 251);
+  --density-high-to: oklch(0.274 0.060 252);
+  --density-extreme-to: oklch(0.296 0.074 254);
+}
+
+/* Emerald — one green-teal, rising. Reads as "activity", the way a
+   contribution graph does. */
+:root[data-palette="emerald"] {
+  --density-low: oklch(0.976 0.014 165);
+  --density-medium: oklch(0.957 0.030 163);
+  --density-high: oklch(0.937 0.048 160);
+  --density-extreme: oklch(0.914 0.066 158);
+  --density-low-to: oklch(0.968 0.018 165);
+  --density-medium-to: oklch(0.945 0.036 163);
+  --density-high-to: oklch(0.923 0.056 160);
+  --density-extreme-to: oklch(0.898 0.076 158);
+}
+:root.dark[data-palette="emerald"] {
+  --density-low: oklch(0.228 0.020 165);
+  --density-medium: oklch(0.258 0.034 163);
+  --density-high: oklch(0.288 0.048 160);
+  --density-extreme: oklch(0.315 0.060 158);
+  --density-low-to: oklch(0.218 0.024 165);
+  --density-medium-to: oklch(0.246 0.040 163);
+  --density-high-to: oklch(0.274 0.056 160);
+  --density-extreme-to: oklch(0.296 0.068 158);
+}
+
+/* Aurora — teal into cyan into blue into indigo. A multi-hue ramp, entirely
+   on the cool side. */
+:root[data-palette="aurora"] {
+  --density-low: oklch(0.976 0.014 190);
+  --density-medium: oklch(0.957 0.030 210);
+  --density-high: oklch(0.937 0.046 238);
+  --density-extreme: oklch(0.914 0.060 270);
+  --density-low-to: oklch(0.968 0.018 190);
+  --density-medium-to: oklch(0.945 0.036 210);
+  --density-high-to: oklch(0.923 0.054 238);
+  --density-extreme-to: oklch(0.898 0.070 270);
+}
+:root.dark[data-palette="aurora"] {
+  --density-low: oklch(0.228 0.022 190);
+  --density-medium: oklch(0.258 0.036 210);
+  --density-high: oklch(0.288 0.050 238);
+  --density-extreme: oklch(0.315 0.062 272);
+  --density-low-to: oklch(0.218 0.026 190);
+  --density-medium-to: oklch(0.246 0.042 210);
+  --density-high-to: oklch(0.274 0.058 238);
+  --density-extreme-to: oklch(0.296 0.070 272);
+}
+
+/* Graphite — near-neutral steps that only turn blue at the top. The
+   quietest option: most days are grey, the busiest are unmistakable. */
+:root[data-palette="graphite"] {
+  --density-low: oklch(0.974 0.003 260);
+  --density-medium: oklch(0.955 0.006 260);
+  --density-high: oklch(0.935 0.020 256);
+  --density-extreme: oklch(0.912 0.052 254);
+  --density-low-to: oklch(0.966 0.004 260);
+  --density-medium-to: oklch(0.943 0.008 260);
+  --density-high-to: oklch(0.921 0.026 256);
+  --density-extreme-to: oklch(0.896 0.062 254);
+}
+:root.dark[data-palette="graphite"] {
+  --density-low: oklch(0.226 0.004 260);
+  --density-medium: oklch(0.256 0.007 260);
+  --density-high: oklch(0.286 0.022 256);
+  --density-extreme: oklch(0.316 0.058 254);
+  --density-low-to: oklch(0.216 0.005 260);
+  --density-medium-to: oklch(0.244 0.009 260);
+  --density-high-to: oklch(0.272 0.028 256);
+  --density-extreme-to: oklch(0.298 0.068 254);
 }

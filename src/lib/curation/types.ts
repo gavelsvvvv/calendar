@@ -55,6 +55,79 @@ export function isSettled(status: EventStatus): boolean {
 export type DateConfidence = "confirmed" | "estimated";
 
 import type { DateSource } from "./event-date";
+
+/**
+ * Which of the two second-level tiers a build has to carry.
+ *
+ * **Two booleans, never one**, and that is the whole point of this type.
+ *
+ * It replaced a single `deep` flag, and the single flag was the source of a
+ * family of regressions that all looked like different bugs. Narrowing eSport
+ * to CS2 set it; the server then took it to mean "carry everything targeted",
+ * so it fetched the fifteen *sport* discovery slices as well and admitted 222
+ * sport rows that only a Sport sub-selection can reach. Measured on a live
+ * July–September grid: the Sports row went from **43 to 266** because a reader
+ * touched eSport, and the eSports row went from **66 to 160** because a reader
+ * touched Sport. Neither category had been narrowed by the other's gesture.
+ *
+ * The type makes that unrepresentable. There is no state in which "targeted"
+ * is true without naming which category asked for it, so no layer downstream —
+ * discovery, curation, the cache key, the count index — can widen one
+ * category's coverage on the other's behalf.
+ */
+export type TargetedTiers = {
+  /** A strict, non-empty subset of the sports is ticked, and Sport is showing. */
+  sports: boolean;
+  /** A strict, non-empty subset of the games is ticked, and eSport is showing. */
+  esports: boolean;
+};
+
+/** Neither tier. The state every reader who has not narrowed anything is in. */
+export const NO_TARGETED_TIERS: TargetedTiers = { sports: false, esports: false };
+
+/**
+ * The canonical form: `""`, `"esports"`, `"sports"` or `"esports,sports"`.
+ *
+ * Alphabetical and built from booleans rather than from anything a caller
+ * typed, so the key space is exactly four values however the request arrived.
+ * That is what keeps the two selections from sharing a field: `sports=tennis`
+ * and `esports=cs2` produce different keys, and neither can overwrite the
+ * other's cached build.
+ *
+ * Comma-separated, which is both the project's existing list separator —
+ * `?sports=tennis,soccer` — and the one that survives a query string. A `+`
+ * does not: it is the URL encoding of a space, so `targeted=esports+sports`
+ * arrives at the server as `"esports sports"` and parses as neither tier. The
+ * browser's own `URLSearchParams` escapes it correctly and would never have
+ * shown this, which is exactly why it is the wrong character to have picked.
+ */
+export function tierKey(tiers: TargetedTiers): string {
+  const parts: string[] = [];
+  if (tiers.esports) parts.push("esports");
+  if (tiers.sports) parts.push("sports");
+  return parts.join(",");
+}
+
+/**
+ * `tierKey` read back — the only way a tier set is ever recovered from a string.
+ *
+ * The inverse is written here, beside the forward direction, because the two
+ * drifting apart is exactly the class of bug this whole type exists to kill.
+ * Anything unrecognised is simply not a tier: an attacker cannot widen a build
+ * by inventing a segment, and a client from a future release asking for a tier
+ * this server does not have falls back to not fetching it rather than to an
+ * error. The result is re-serialised through `tierKey` wherever it becomes a
+ * cache key, so `"sports,esports"`, `"esports,sports"` and
+ * `"sports,sports,esports"` all land on one entry.
+ */
+export function parseTierKey(raw: string | null | undefined): TargetedTiers {
+  if (!raw) return NO_TARGETED_TIERS;
+  // Comma, plus, or the space a plus decodes into. Forgiving about the
+  // separator and unforgiving about the words: a hand-written URL still works,
+  // and nothing outside these two names can name a tier.
+  const parts = new Set(raw.split(/[+,\s]+/));
+  return { sports: parts.has("sports"), esports: parts.has("esports") };
+}
 export type { DateSource };
 
 /**
@@ -283,7 +356,23 @@ export type CurationOptions = {
    */
   skipDailyCaps?: boolean;
   /**
-   * Keep events that only a Sport/eSport sub-filter can reach.
+   * Apply the per-day caps to the broad tier. Defaults to true.
+   *
+   * The calendar passes `false`. The caps made it a digest — at most two sports
+   * and two esports a day — and that stopped being what the owner wants: on
+   * 9 November 2026 (ET) eight NBA games traded between $200K and $1.26M, all
+   * comfortably over the sports floor, and the calendar showed one of them,
+   * because Monday Night Football took the other slot. The volume floors stay,
+   * and so does the grid's own "+N more"; what goes is the count.
+   *
+   * Narrower than `skipDailyCaps`, which also drops the targeted tier's cap.
+   * That one stays: the $500 tier behind a Sport sub-filter can return a hundred
+   * Challenger matches in a day, and `MAX_TARGETED_PER_SPORT_PER_DAY` is the
+   * only thing between a reader who ticked Tennis and a 4MB response.
+   */
+  broadDailyCaps?: boolean;
+  /**
+   * Keep events that only a Sport/eSport sub-filter can reach — per category.
    *
    * Off by default, and the default is the important case: those events more
    * than double a month's wire payload (302KB → 655KB, measured on a live
@@ -291,8 +380,13 @@ export type CurationOptions = {
    * carrying them. Curation still *classifies* every event either way — only
    * the final keep/drop differs — so turning this on never changes what an
    * event is, just whether it survives.
+   *
+   * Two flags rather than one, because one was a bug. A single `includeTargeted`
+   * admitted *both* categories' targeted rows whichever category the reader had
+   * narrowed, which is how touching eSport moved the Sports count from 43 to
+   * 266. See `TargetedTiers`.
    */
-  includeTargeted?: boolean;
+  targeted?: TargetedTiers;
   /**
    * Pass an array to have curation record a verdict per raw event into it.
    * Absent by default, and the only cost when absent is one undefined check.

@@ -108,24 +108,33 @@ export async function GET(
     esportsParam === null ? [...ESPORT_IDS] : parseEsportSelection(esportsParam);
 
   /*
-   * A narrowed feed needs the deeper dataset, for the same reason the website
-   * does — the $500 events do not exist in a shallow build, so a tennis feed
-   * built from one would be empty. Costed deliberately: this is four month
-   * builds rather than one, so it runs only for a subscription that actually
-   * narrowed, and the response is cached for fifteen minutes either way.
+   * A narrowed feed needs the targeted dataset, for the same reason the website
+   * does — the $500 events do not exist without it, so a tennis feed built
+   * without it would be empty. Costed deliberately: this is four month builds
+   * rather than one, so it runs only for a subscription that actually narrowed,
+   * and the response is cached for fifteen minutes either way.
+   *
+   * Per category, matching the website exactly. A `?esports=cs2` feed used to
+   * set one shared flag, which pulled in the fifteen sport discovery slices and
+   * the sport rows only a Sport selection should reach; those rows then went
+   * through the same `matchesFilters` the site uses, so they never appeared in
+   * the ICS — but they were fetched, curated and paid for on every rebuild.
    */
-  const targeted =
-    (categories.includes("sports") &&
+  const targeted = {
+    sports:
+      categories.includes("sports") &&
       sports.length > 0 &&
-      sports.length < SPORT_IDS.length) ||
-    (categories.includes("esports") &&
+      sports.length < SPORT_IDS.length,
+    esports:
+      categories.includes("esports") &&
       esports.length > 0 &&
-      esports.length < ESPORT_IDS.length);
+      esports.length < ESPORT_IDS.length,
+  };
 
   try {
     const dataset = await buildFeedDataset({
       includeSmallerMarkets,
-      includeTargeted: targeted,
+      targeted,
     });
 
     const selection = {

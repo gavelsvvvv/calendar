@@ -238,6 +238,50 @@ export const BROAD_DISCOVERY_SLICES: DiscoverySlice[] = DISCOVERY_SLICES.filter(
   (slice) => slice.tier !== "targeted",
 );
 
+/**
+ * The slices to run, given which sub-filter tiers were actually asked for.
+ *
+ * Per category, and that is a bug fix rather than a refinement. Every targeted
+ * slice here is `feeds: "sports"` — fifteen of them, ~40MB — and the previous
+ * single `deep` flag ran all fifteen whenever *either* sub-filter was narrowed.
+ * So a reader who picked CS2 paid for fifteen sport pages, and those pages
+ * surfaced sport events that clear the broad $250,000 floor: the Sports row
+ * moved 43 → 44 on a live grid because somebody touched eSport. Asking each
+ * slice which category it feeds keeps the two selections' upstream costs, and
+ * their coverage, entirely separate.
+ *
+ * There are currently no targeted *esport* slices — the esport tags are already
+ * in the broad set — so a narrowed eSport adds no upstream pages at all. That
+ * is the correct answer, not a gap: `esports` is honoured here so that adding
+ * one later needs no change anywhere else.
+ */
+export function discoverySlicesFor(tiers: {
+  sports: boolean;
+  esports: boolean;
+}): DiscoverySlice[] {
+  return DISCOVERY_SLICES.filter((slice) => {
+    if (slice.tier !== "targeted") return true;
+    return slice.feeds === "esports" ? tiers.esports : tiers.sports;
+  });
+}
+
+/**
+ * Does this tier set actually cost extra upstream pages?
+ *
+ * Asked rather than assumed, because the answer is currently asymmetric: a
+ * narrowed Sport adds fifteen pages, a narrowed eSport adds none. Charging the
+ * rate limiter's deep multiplier on "any tier is set" would double the price of
+ * a CS2 selection for no upstream work at all — a reader narrowing eSport would
+ * hit the limiter twice as fast than one who did not, for nothing. Deriving it
+ * from the slice list keeps the charge honest if that asymmetry ever changes.
+ */
+export function addsDiscoveryPages(tiers: {
+  sports: boolean;
+  esports: boolean;
+}): boolean {
+  return discoverySlicesFor(tiers).length > BROAD_DISCOVERY_SLICES.length;
+}
+
 
 /**
  * How many events to pull per discovery slice.

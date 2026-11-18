@@ -37,9 +37,14 @@ import { fromMonthKey, toDateKey, toMonthKey } from "./dates";
 
 export type CalendarView = "month" | "week" | "agenda";
 
+/** The two views that are about a particular day rather than a whole month. */
+function isDayAnchored(view: CalendarView): boolean {
+  return view === "week" || view === "agenda";
+}
+
 export type CalendarUrlState = {
   view: CalendarView;
-  /** Month anchor for month/agenda; day anchor for week. */
+  /** Month anchor for month; day anchor for week and agenda. */
   anchor: Date;
   filters: CalendarFilters;
   /** `YYYY-MM-DD` of an explicitly selected day. */
@@ -132,11 +137,11 @@ export function parseCalendarUrlState(
 ): CalendarUrlState {
   const view = parseView(params.get("view"));
 
-  // `date` is the week view's day anchor; `month` is the month anchor. Either
-  // may appear, and an unparseable value falls back to today.
+  // `date` is the day anchor used by week and agenda; `month` is the month
+  // anchor. Either may appear, and an unparseable value falls back to today.
   const explicitDate = fromMonthKey(params.get("date") ?? "");
   const explicitMonth = fromMonthKey(params.get("month") ?? "");
-  const fallback = view === "week" ? now : startOfMonthLocal(now);
+  const fallback = isDayAnchored(view) ? now : startOfMonthLocal(now);
   const anchor = explicitDate ?? explicitMonth ?? fallback;
 
   const categories = parseCategories(params.get("categories"));
@@ -182,9 +187,10 @@ export function serializeCalendarUrlState(
 
   if (state.view !== "month") params.set("view", state.view);
 
-  // The week view anchors on a day; serializing only `YYYY-MM` would round every
-  // "next week" back to the 1st and the view would never move.
-  if (state.view === "week") {
+  // Week and agenda anchor on a day; serializing only `YYYY-MM` would round
+  // every "next week" — and every "next day" — back to the 1st, and the view
+  // would never move.
+  if (isDayAnchored(state.view)) {
     const key = toDateKey(state.anchor);
     if (key !== toDateKey(now)) params.set("date", key);
   } else {

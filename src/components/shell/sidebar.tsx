@@ -7,8 +7,8 @@ import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from "@/components/ui
 import { Checkbox } from "@/components/ui/primitives";
 import { CATEGORIES } from "@/lib/categories";
 import { categorySelection, type CalendarFilters } from "@/lib/curation/filters";
-import { ESPORTS, SPORTS } from "@/lib/sports/taxonomy";
-import { SubFilter } from "./sub-filter";
+import { ESPORT_OPTIONS, SPORT_OPTIONS } from "./sport-icons";
+import { inlineSummary, SubFilter } from "./sub-filter";
 import type { CalendarCategory, ImportanceLevel } from "@/lib/curation/types";
 import { cn } from "@/lib/utils";
 import { Brand } from "./brand";
@@ -450,18 +450,24 @@ function SidebarBody({
           {CATEGORIES.map((category) => {
             const count = counts[category.id] ?? 0;
             /*
-             * Two categories carry a second level. Rendered inside the same
-             * list item as the parent row so the summary line moves with it and
-             * a screen reader reaches it immediately after the checkbox it
-             * qualifies.
+             * Two categories carry a second level, and it is a control on the
+             * row rather than a list under it.
+             *
+             * The row is now two targets, deliberately: the label toggles the
+             * category, the button at its right end opens the picker. They were
+             * one before, which forced a reader who wanted to *configure* Sport
+             * to first find a summary line hanging beneath it — and put nine
+             * sports' worth of second-level filtering into a panel whose whole
+             * job is to look like eleven calendars.
              */
             const sub =
               category.id === "sports"
                 ? {
                     title: "Sport",
+                    heading: "Sports",
                     allLabel: "All Sports",
-                    options: SPORTS,
-                    selected: filters.sports,
+                    options: SPORT_OPTIONS,
+                    selected: filters.sports as readonly string[],
                     counts: sportCounts,
                     onChange: (next: string[]) =>
                       onFiltersChange({ sports: next as CalendarFilters["sports"] }),
@@ -469,69 +475,129 @@ function SidebarBody({
                 : category.id === "esports"
                   ? {
                       title: "eSport",
+                      heading: "eSports",
                       allLabel: "All Games",
-                      options: ESPORTS,
-                      selected: filters.esports,
+                      options: ESPORT_OPTIONS,
+                      selected: filters.esports as readonly string[],
                       counts: esportCounts,
                       onChange: (next: string[]) =>
                         onFiltersChange({ esports: next as CalendarFilters["esports"] }),
                     }
                   : null;
+            /*
+             * The narrowed selection, said in the row itself and nowhere else.
+             *
+             * `null` under "All Sports", which is where every reader who has
+             * never opened the picker lives: annotating the default would be
+             * the panel describing the absence of a choice. Once it *is*
+             * narrowed this is the whole indication — the name while one fits,
+             * a count after that, "None" when the answer is none. The full list
+             * is on the tune button's tooltip and accessible name.
+             */
+            const summary = sub
+              ? inlineSummary(sub.selected, sub.options, sub.allLabel)
+              : null;
             return (
               <li key={category.id}>
-                <label
+                {/*
+                  A row, not a label. The tune button cannot live inside the
+                  label — every click on it would fall through to the checkbox
+                  the label is for — so the row is a plain box holding two
+                  siblings, and the hover tint moves to the box so the highlight
+                  still reaches the row's right edge.
+                */}
+                <div
                   data-category-row={category.id}
                   className={cn(
-                    "flex cursor-pointer items-center gap-3 transition-colors motion-safe:duration-(--dur-quick) hover:bg-surface-hover active:bg-surface-hover",
-                    touch ? "min-h-12 rounded-lg px-2" : "min-h-9 rounded px-1 py-1",
+                    "flex items-center transition-colors motion-safe:duration-(--dur-quick) hover:bg-surface-hover has-[label:active]:bg-surface-hover",
+                    touch ? "min-h-12 gap-2 rounded-lg px-2" : "min-h-9 gap-1.5 rounded px-1",
                     count === 0 && "opacity-55",
                   )}
                 >
-                  <Checkbox
-                    className={touch ? "size-[22px] rounded-md" : undefined}
-                    checked={filters.categories.includes(category.id)}
-                    onCheckedChange={() => onToggleCategory(category.id)}
-                    aria-label={`${category.label}, ${count} event${count === 1 ? "" : "s"}`}
-                  />
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full",
-                      touch ? "size-2.5" : "size-2",
-                      category.dot,
-                    )}
-                    aria-hidden
-                  />
-                  <span className={cn("min-w-0 flex-1 truncate text-foreground", scale.text)}>
-                    {category.label}
-                  </span>
-                  {/* Always a number. An empty cell in week view read as the
-                      counts having vanished, when the honest answer was zero. */}
-                  <span
-                    data-category-count={count}
-                    className="shrink-0 text-[12px] tabular-nums text-muted-foreground"
+                  <label
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-1"
                   >
-                    {count}
-                  </span>
-                </label>
-                {sub && (
-                  <SubFilter
-                    title={sub.title}
-                    allLabel={sub.allLabel}
-                    options={sub.options}
-                    selected={sub.selected}
-                    counts={sub.counts}
-                    onChange={sub.onChange}
-                    touch={touch}
+                    <Checkbox
+                      className={touch ? "size-[22px] rounded-md" : undefined}
+                      checked={filters.categories.includes(category.id)}
+                      onCheckedChange={() => onToggleCategory(category.id)}
+                      aria-label={`${category.label}, ${count} event${count === 1 ? "" : "s"}`}
+                    />
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full",
+                        touch ? "size-2.5" : "size-2",
+                        category.dot,
+                      )}
+                      aria-hidden
+                    />
+                    {/*
+                      The name does not shrink; the summary does.
+
+                      Both truncating meant "Sports" becoming "Sp…" to make room
+                      for "Tennis · NF…", which is the row losing the one word it
+                      cannot afford to lose. Eleven category names top out at
+                      "Technology", which fits the rail at every supported width
+                      with room to spare, so pinning it costs nothing and the
+                      narrowing — an annotation — yields first.
+                    */}
+                    <span className="flex min-w-0 flex-1 items-baseline gap-1">
+                      <span className={cn("shrink-0 text-foreground", scale.text)}>
+                        {category.label}
+                      </span>
+                      {summary && (
+                        <span
+                          data-category-sub-summary={summary}
+                          /* The count forms always fit; a long single name —
+                             "Rocket League" is the worst of the nineteen —
+                             ellipsises, and this is what gets it back. */
+                          title={summary}
+                          className={cn(
+                            "min-w-0 flex-1 truncate text-muted-foreground",
+                            touch ? "text-[12px]" : "text-[11px]",
+                          )}
+                        >
+                          {summary}
+                        </span>
+                      )}
+                    </span>
+                    {/* Always a number. An empty cell in week view read as the
+                        counts having vanished, when the honest answer was zero. */}
+                    <span
+                      data-category-count={count}
+                      className="shrink-0 pl-1.5 text-[12px] tabular-nums text-muted-foreground"
+                    >
+                      {count}
+                    </span>
+                  </label>
+                  {sub ? (
+                    <SubFilter
+                      title={sub.title}
+                      heading={sub.heading}
+                      allLabel={sub.allLabel}
+                      options={sub.options}
+                      selected={sub.selected}
+                      counts={sub.counts}
+                      onChange={sub.onChange}
+                      touch={touch}
+                      /*
+                       * Told, not disabled. The picker stays usable while Sport
+                       * is unticked — the sub-selection is its own field
+                       * precisely so it survives the category being switched
+                       * off — and a disabled control would say the opposite.
+                       */
+                      parentOff={!filters.categories.includes(category.id)}
+                    />
+                  ) : (
                     /*
-                     * Greyed out rather than hidden when the parent is
-                     * unticked. The sub-selection is still remembered — that is
-                     * the point of §12 — and hiding the control would make it
-                     * look forgotten. Disabled says "this does nothing right
-                     * now" without claiming it does not exist.
-                     */
-                    disabled={!filters.categories.includes(category.id)}
-                  />
-                )}
+                       The other nine reserve the same slot. Without it the
+                       count column would sit 24px further right on nine rows
+                       than on two, which is the sort of misalignment you cannot
+                       unsee once the eye has found it.
+                    */
+                    <span className={cn("shrink-0", touch ? "w-9" : "w-6")} aria-hidden />
+                  )}
+                </div>
               </li>
             );
           })}

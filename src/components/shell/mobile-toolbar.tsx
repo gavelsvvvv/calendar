@@ -31,7 +31,7 @@ export function MobileToolbar({
   onPrevious,
   onNext,
 }: MobileToolbarProps) {
-  const unit = view === "week" ? "week" : "month";
+  const unit = view === "week" ? "week" : view === "agenda" ? "day" : "month";
 
   return (
     <div

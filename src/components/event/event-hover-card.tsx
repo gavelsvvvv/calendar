@@ -3,6 +3,7 @@
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { format } from "date-fns";
 import { ExternalLink, Star } from "lucide-react";
+import Image from "next/image";
 import * as React from "react";
 import { useFavorites } from "@/hooks/use-favorites";
 import { TimeZoneNote } from "@/components/shell/time-zone-note";
@@ -144,7 +145,33 @@ function HoverPreview({ event }: { event: CuratedCalendarEvent }) {
         </span>
       </div>
 
-      <p className="text-[13px] font-medium leading-snug text-foreground">{event.title}</p>
+      {/*
+        The market's own artwork beside its name. Every surface that has room
+        for it shows it — the day board's cards lead with it — and the grids
+        are the ones that do not: a week chip is 22px tall in a ~100px column,
+        and a month chip is a line of text. So the glance is where those two
+        get it, at a size where a team crest or a game logo is legible.
+      */}
+      <div className="flex items-start gap-2.5">
+        {event.image ? (
+          <Image
+            src={event.image}
+            alt=""
+            width={48}
+            height={48}
+            sizes="48px"
+            className="size-12 shrink-0 rounded-md object-cover"
+          />
+        ) : (
+          <span
+            className={cn("size-12 shrink-0 rounded-md opacity-70", category.dot)}
+            aria-hidden
+          />
+        )}
+        <p className="min-w-0 text-[13px] font-medium leading-snug text-foreground">
+          {event.title}
+        </p>
+      </div>
 
       <p className="text-[11px] text-muted-foreground">
         {format(fromDayKey(event.displayDate), "EEE d MMM")}

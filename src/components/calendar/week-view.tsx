@@ -105,8 +105,14 @@ export function offsetFor(time: string | undefined): number {
   return ((clamped - FIRST_HOUR * 60) / 60) * HOUR_HEIGHT;
 }
 
-/** Rendered height of one chip in the grid, plus the gap beneath it. */
-const CHIP_STEP = 22;
+/**
+ * Rendered height of one chip in the grid, plus the gap beneath it.
+ *
+ * 24 rather than 22 since the chips carry the market's 16px artwork: 16px of
+ * image, 2px of padding either side and a 1px border is 22px of chip, which at
+ * a 22px step left neighbours touching. Two chips are still exactly one hour.
+ */
+const CHIP_STEP = 24;
 /** Chips a single cluster shows before collapsing into "+N more". */
 const MAX_PER_CLUSTER = 2;
 

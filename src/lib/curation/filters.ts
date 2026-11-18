@@ -11,7 +11,10 @@ import type {
   CalendarCategory,
   CuratedCalendarEvent,
   ImportanceLevel,
+  TargetedTiers,
 } from "./types";
+
+export { NO_TARGETED_TIERS, tierKey, type TargetedTiers } from "./types";
 
 /**
  * The one filter pipeline.
@@ -165,7 +168,7 @@ export function esportSelection(filters: CalendarFilters): SubSelection {
 }
 
 /**
- * Does this selection need the server to send the sub-filter tier?
+ * Does this selection need the server to send either sub-filter tier, and which?
  *
  * The one question the fetch layer asks, kept here so that "what counts as
  * targeted" is defined once. It has to agree exactly with the gate in
@@ -173,13 +176,33 @@ export function esportSelection(filters: CalendarFilters): SubSelection {
  * would tick Tennis and be shown an empty calendar built from data that was
  * never requested — a bug that would look like missing coverage rather than a
  * missing fetch, and would be debugged in the wrong file.
+ *
+ * The category gate is part of the question. A subset of the sports while Sport
+ * itself is unticked changes nothing a reader can see, so it must not buy the
+ * fifteen extra upstream pages either.
  */
-export function needsTargetedTier(filters: CalendarFilters): boolean {
-  return (
-    (filters.categories.includes("sports") && sportSelection(filters).targeted) ||
-    (filters.categories.includes("esports") && esportSelection(filters).targeted)
-  );
+export function targetedTiers(filters: CalendarFilters): TargetedTiers {
+  return {
+    sports: filters.categories.includes("sports") && sportSelection(filters).targeted,
+    esports: filters.categories.includes("esports") && esportSelection(filters).targeted,
+  };
 }
+
+/*
+ * There is deliberately no `needsTargetedTier` here.
+ *
+ * It existed, it returned `sportsTier || esportsTier`, and that single boolean
+ * is the regression: every layer downstream — the discovery slices, the tier
+ * gate in curation, the server cache key, the browser's month key — read it and
+ * could only answer "targeted, but for whom?" with "both". Narrowing eSport
+ * therefore fetched fifteen sport pages and admitted 222 sport rows, and the
+ * Sports count went from 43 to 266 on a grid nobody had touched.
+ *
+ * Deleting it rather than leaving it unused is the point: a predicate whose
+ * name sounds like the question you want is the one the next reader reaches
+ * for, and this one silently discards the only distinction that matters. Ask
+ * `targetedTiers` and read the field for the category you are actually serving.
+ */
 
 const IMPORTANCE_RANK: Record<ImportanceLevel, number> = {
   standard: 0,
@@ -266,7 +289,7 @@ export type FilterContext = {
  *  3. **Nothing else.** Events outside sports and esports return early and are
  *     unaffected by any of it.
  */
-function matchesSubFilter(
+export function matchesSubFilter(
   event: CuratedCalendarEvent,
   filters: CalendarFilters,
 ): boolean {
@@ -315,11 +338,32 @@ export function matchesSelection(
   filters: CalendarFilters,
   context: FilterContext = {},
 ): boolean {
-  const categories = new Set(filters.categories);
-  if (!categories.has(event.category)) return false;
-
+  if (!filters.categories.includes(event.category)) return false;
   if (!matchesSubFilter(event, filters)) return false;
+  return matchesGlobalFilters(event, filters, context);
+}
 
+/**
+ * The part of the selection that is not about categories at all.
+ *
+ * Importance, weekend, favourites and the search box — the four controls that
+ * mean the same thing to every event on the calendar, whatever category it is
+ * in.
+ *
+ * Split out because the counts need exactly this layer and no more. A number
+ * beside "Sport" has to answer "how much would ticking this give me", so it
+ * cannot apply the category boxes — that would print 0 against every row the
+ * reader has not chosen, which is backwards from what the control is for. But
+ * it *must* apply these four, or the sidebar would advertise events a search
+ * has already excluded. Naming the three layers separately —
+ * category / sub-filter / global — is what lets each count say precisely which
+ * of them it obeys, instead of every surface re-deriving its own near-miss.
+ */
+export function matchesGlobalFilters(
+  event: CuratedCalendarEvent,
+  filters: CalendarFilters,
+  context: FilterContext = {},
+): boolean {
   const minRank =
     filters.minImportance === "all" ? -1 : IMPORTANCE_RANK[filters.minImportance];
   if (minRank >= 0 && IMPORTANCE_RANK[event.importanceLevel] < minRank) return false;

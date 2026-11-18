@@ -550,5 +550,8 @@ export const GUARANTEED_SLOTS_PER_CATEGORY_PER_DAY = 1;
  */
 export const MAX_EVENTS_PER_DAY = 18;
 
-/** With "Include smaller markets" on, the caps roughly double. */
-export const RELAXED_CAP_FACTOR = 2;
+/*
+ * There used to be a RELAXED_CAP_FACTOR here that doubled every cap under
+ * "Include smaller markets". It is gone: that toggle now lifts the per-day caps
+ * entirely and keeps only the relaxed volume floors. See `applyPerDayCaps`.
+ */

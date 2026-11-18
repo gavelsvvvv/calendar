@@ -9,7 +9,7 @@ import {
   type CuratedDataset,
 } from "@/lib/curation/dataset";
 import { toPublicDataset, type PublicDataset } from "@/lib/api/public-event";
-import { needsTargetedTier } from "@/lib/curation/filters";
+import { targetedTiers } from "@/lib/curation/filters";
 import { toMonthKey } from "@/lib/dates";
 import { FALLBACK_TIME_ZONE, isValidTimeZone, TIME_ZONE_COOKIE } from "@/lib/timezone";
 import { parseCalendarUrlState } from "@/lib/url-state";
@@ -81,10 +81,11 @@ export default async function Page({ searchParams }: PageProps<"/">) {
            * where the server can know the reader wants the sub-filter tier, and
            * building it here is what makes that link correct on first paint
            * instead of showing an empty calendar for the moment it takes the
-           * browser to notice and refetch. It costs a deep build only for
-           * requests that carry the parameter — the default page never does.
+           * browser to notice and refetch. It costs a targeted build only for
+           * requests that carry the parameter — the default page never does —
+           * and only for the category the link actually narrowed.
            */
-          includeTargeted: needsTargetedTier(urlState.filters),
+          targeted: targetedTiers(urlState.filters),
         }),
       ),
     );

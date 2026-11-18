@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { addsDiscoveryPages } from "@/config/discovery";
 import { isRangeError, normalizeRange } from "@/lib/api/range";
 import { toPublicDataset } from "@/lib/api/public-event";
 import { charge, checkLimit, clientKey, costOf } from "@/lib/api/rate-limit";
 import { buildCuratedDataset, isRangeWarm, withoutRelatedMarkets } from "@/lib/curation/dataset";
+import { parseTierKey } from "@/lib/curation/types";
 
 /**
  * Curated events for one visible range, used when the client navigates to a
@@ -80,25 +82,44 @@ export async function GET(request: Request) {
 
   const includeSmallerMarkets = searchParams.get("includeSmaller") === "1";
   /*
-   * The Sport/eSport sub-filter tier, requested only by a client that has one
-   * active. A boolean flag rather than the selection itself: the server does
-   * not need to know *which* sports were ticked — the browser filters the month
-   * it already holds — so no sport name from the query string ever reaches a
-   * cache key, an upstream request or a response. The one thing this parameter
-   * can do is make the request more expensive, which is what the cost below is
-   * for.
+   * Which categories' sub-filter tier to carry — `""`, `"sports"`, `"esports"`
+   * or `"esports,sports"`, and nothing else, because `parseTierKey` recognises
+   * two words and discards everything else.
+   *
+   * Two named tiers rather than one boolean, which is the fix for a measured
+   * regression: one flag made a narrowed eSport fetch the fifteen *sport*
+   * discovery slices, and the extra sport rows that came back moved the Sports
+   * count on a grid nobody had touched.
+   *
+   * Still not the selection itself. The server never learns *which* sports were
+   * ticked — the browser filters the month it already holds — so no sport name
+   * from the query string reaches a cache key, an upstream request or a
+   * response, and the key space stays at four values rather than growing with
+   * every subset a stranger can type. The one thing this parameter can do is
+   * make the request more expensive, which is what the cost below is for.
    */
-  const includeTargeted = searchParams.get("deep") === "1";
-  const warm = isRangeWarm(range.start, range.end, includeSmallerMarkets, includeTargeted);
+  const targeted = parseTierKey(
+    // `deep=1` is the previous release's spelling of "both tiers". A browser
+    // that loaded the old bundle keeps sending it for as long as its tab is
+    // open, and it would otherwise silently lose its sub-filter coverage
+    // mid-session, so it is honoured as exactly what it used to mean.
+    searchParams.get("deep") === "1"
+      ? "esports,sports"
+      : searchParams.get("targeted"),
+  );
+  const warm = isRangeWarm(range.start, range.end, includeSmallerMarkets, targeted);
+  // "Smaller markets" now fetches three times as many global pages plus the
+  // sport slices, so a cold one is priced like the deep build it is.
+  const deep = addsDiscoveryPages(targeted) || includeSmallerMarkets;
 
   try {
     const dataset = await buildCuratedDataset({
       start: range.start,
       end: range.end,
       includeSmallerMarkets,
-      includeTargeted,
+      targeted,
     });
-    charge(client, costOf({ cold: !warm, days: range.days, deep: includeTargeted }));
+    charge(client, costOf({ cold: !warm, days: range.days, deep }));
 
     /*
      * A long shared cache life with a longer stale window.
@@ -139,7 +160,7 @@ export async function GET(request: Request) {
     return NextResponse.json(toPublicDataset(withoutRelatedMarkets(dataset)), { headers });
   } catch (error) {
     // A failed build still consumed upstream capacity, so it still costs.
-    charge(client, costOf({ cold: true, days: range.days, deep: includeTargeted }));
+    charge(client, costOf({ cold: true, days: range.days, deep }));
     /*
      * Never reflect the thrown message. It can carry an upstream URL, a
      * timeout's internals or a stack-derived string, and none of that is the

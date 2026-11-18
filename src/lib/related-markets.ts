@@ -1,7 +1,8 @@
 "use client";
 
 import { monthGridRange } from "./calendar-cache";
-import type { RelatedMarket } from "./curation/types";
+import { NO_TARGETED_TIERS, tierKey } from "./curation/types";
+import type { RelatedMarket, TargetedTiers } from "./curation/types";
 
 /**
  * The legs of an event, fetched separately from the calendar.
@@ -45,19 +46,33 @@ export function readRelatedMarkets(eventId: string): RelatedMarket[] | undefined
   return byEvent.get(eventId);
 }
 
-function slot(monthKey: string, includeSmaller: boolean): string {
-  return `${monthKey}|${includeSmaller ? "small" : "curated"}`;
+function slot(monthKey: string, includeSmaller: boolean, tier: string): string {
+  return `${monthKey}|${includeSmaller ? "small" : "curated"}${tier ? `+${tier}` : ""}`;
 }
 
-/** Fetch a whole month's legs at once, once. */
-export function ensureRelatedMarkets(monthKey: string, includeSmaller: boolean): void {
-  const key = slot(monthKey, includeSmaller);
+/**
+ * Fetch a whole month's legs at once, once.
+ *
+ * Carries the same tiers the calendar fetched the month with, because the
+ * server answers this from the same dataset entry: asked without them, a
+ * targeted-only event's disclosure came back empty — the untargeted build it
+ * read from does not contain that event at all. It is a warm lookup, since the
+ * calendar has already paid for that build.
+ */
+export function ensureRelatedMarkets(
+  monthKey: string,
+  includeSmaller: boolean,
+  targeted: TargetedTiers = NO_TARGETED_TIERS,
+): void {
+  const tier = tierKey(targeted);
+  const key = slot(monthKey, includeSmaller, tier);
   if (loaded.has(key) || inFlight.has(key)) return;
   inFlight.add(key);
 
   const { start, end } = monthGridRange(monthKey);
   const params = new URLSearchParams({ start, end, markets: "1" });
   if (includeSmaller) params.set("includeSmaller", "1");
+  if (tier) params.set("targeted", tier);
 
   void fetch(`/api/events?${params.toString()}`)
     .then((response) => (response.ok ? response.json() : Promise.reject(new Error("failed"))))

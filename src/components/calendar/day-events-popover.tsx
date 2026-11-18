@@ -5,12 +5,10 @@ import * as React from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { useIsDesktop } from "@/hooks/use-media-query";
-import { useNow } from "@/hooks/use-now";
+import { useTodayKey } from "@/hooks/use-now";
 import type { CuratedCalendarEvent } from "@/lib/curation/types";
 import { fromDayKey } from "@/lib/dates";
-import { isEventPast } from "@/lib/event-time";
-import { cn } from "@/lib/utils";
-import { EventChip } from "./event-chip";
+import { DaySchedule } from "./day-schedule";
 
 export type DayEventsPopoverProps = {
   dayKey: string | null;
@@ -22,7 +20,15 @@ export type DayEventsPopoverProps = {
 
 const HEADING = "text-[15px] font-semibold leading-tight text-foreground";
 
-/** Everything on one day — the escape hatch from a cell that shows only three. */
+/**
+ * Everything on one day — the escape hatch from a cell that shows only three.
+ *
+ * It renders the same clock the day view does, rather than a flat list. A month
+ * cell can say *that* Tuesday is busy; the only useful next question is how that
+ * day is shaped, and "six things, four of them in the evening" is an answer a
+ * list cannot give. Opening this from "+N more" is now the same gesture as
+ * switching to the day view, without losing the month behind it.
+ */
 export function DayEventsPopover({
   dayKey,
   events,
@@ -31,7 +37,7 @@ export function DayEventsPopover({
   onSelectEvent,
 }: DayEventsPopoverProps) {
   const isDesktop = useIsDesktop();
-  const now = useNow();
+  const today = useTodayKey();
   const label = dayKey ? format(fromDayKey(dayKey), "EEEE d MMMM") : null;
 
   const body = label ? (
@@ -43,58 +49,43 @@ export function DayEventsPopover({
         and is `size-8`, so its centre is 28px down. A 56px header centres its
         content on exactly that. Anything shorter and the two are visibly off.
       */}
-      <div className="flex min-h-14 items-center gap-2 border-b border-border px-4 py-2 pr-11">
+      <div className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-4 py-2 pr-11">
         <DialogTitleSlot isDesktop={isDesktop}>{label}</DialogTitleSlot>
+        {dayKey === today && (
+          <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-accent-foreground">
+            Today
+          </span>
+        )}
         <span className="ml-auto shrink-0 text-[12px] tabular-nums text-muted-foreground">
           {events.length} event{events.length === 1 ? "" : "s"}
         </span>
       </div>
-      {events.length === 0 ? (
-        <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-          Nothing scheduled on this day.
-        </p>
-      ) : (
-        <ul
-          className="max-h-[60vh] overflow-y-auto overscroll-contain scrollbar-slim p-2"
-          style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
-        >
-          {events.map((event) => (
-            <li key={event.id} className="flex min-h-11 items-center gap-2">
-              {/* The time the cell had no room for. A close time is dimmer —
-                  it is the day's trading deadline, not when the thing starts.
 
-                  `is-past` here as well as on the chip beside it, because the
-                  two are siblings rather than nested: without it the column of
-                  times stayed at full strength beside a row of finished events
-                  and undid the distinction the chip was drawing. */}
-              <span
-                className={cn(
-                  "w-11 shrink-0 pl-1 text-[11px] tabular-nums",
-                  isEventPast(event, now) && "is-past",
-                  event.timeKind === "close"
-                    ? "text-subtle-foreground"
-                    : "text-muted-foreground",
-                )}
-              >
-                {event.time}
-              </span>
-              <EventChip
-                event={event}
-                onSelect={onSelectEvent}
-                variant="agenda"
-                className="min-w-0 flex-1"
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+      <DaySchedule
+        key={dayKey}
+        dayKey={dayKey ?? ""}
+        events={events}
+        onSelectEvent={onSelectEvent}
+        // The dialog's own cap, less its 56px header. The board inside never
+        // scrolls sideways, so this is the only scrolling the dialog does.
+        className="max-h-[calc(90vh-3.5rem)] min-h-0 flex-1"
+      />
     </div>
   ) : null;
 
   if (isDesktop) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent aria-describedby={undefined} className="max-w-sm overflow-hidden p-0">
+        {/*
+          Nearly the whole viewport. The body is a board of hour columns that
+          share the width and wrap rather than scroll sideways, so the dialog's
+          size decides how much of the day is on screen at once — at 896px a
+          busy evening still ran off to the right behind a scrollbar.
+        */}
+        <DialogContent
+          aria-describedby={undefined}
+          className="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-[1400px] flex-col overflow-hidden p-0"
+        >
           {body ?? <DialogTitle className="sr-only">Day events</DialogTitle>}
         </DialogContent>
       </Dialog>

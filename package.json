@@ -23,6 +23,7 @@
     "data:trace": "tsx scripts/trace-event.ts",
     "icons": "node scripts/make-icons.mjs",
     "verify:sub-filters": "tsx scripts/verify-sub-filters.ts",
+    "verify:sub-filter-isolation": "tsx scripts/verify-sub-filter-isolation.ts",
     "data:sports": "tsx scripts/audit-sports-coverage.ts"
   },
   "dependencies": {

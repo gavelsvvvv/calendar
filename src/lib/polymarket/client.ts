@@ -1,8 +1,5 @@
-import {
-  BROAD_DISCOVERY_SLICES,
-  DISCOVERY_SLICES,
-  DISCOVERY_SLICE_LIMIT,
-} from "@/config/discovery";
+import { DISCOVERY_SLICE_LIMIT, discoverySlicesFor } from "@/config/discovery";
+import { NO_TARGETED_TIERS, type TargetedTiers } from "@/lib/curation/types";
 import type { GammaEvent } from "./gamma-types";
 
 /**
@@ -198,11 +195,13 @@ export type RangeQuery = {
   /** Per-category tag slices. Off only for tests that want the global pages alone. */
   discovery?: boolean;
   /**
-   * Also run the per-sport slices, for a request that wants the Sport/eSport
-   * sub-filter tier. Costs ~15 extra pages and ~40MB, so it is off by default
-   * and paid for only by the request that asked.
+   * Which sub-filter tiers to run the extra slices for.
+   *
+   * Per category, so a narrowed eSport does not buy fifteen *sport* pages. The
+   * sport slices cost ~40MB, are off by default, and are paid for only by the
+   * request that asked for that category. See `discoverySlicesFor`.
    */
-  deep?: boolean;
+  targeted?: TargetedTiers;
   signal?: AbortSignal;
 };
 
@@ -281,7 +280,7 @@ export async function fetchEventsInRange(query: RangeQuery): Promise<GammaEvent[
     openPages = 4,
     closedPages = 2,
     discovery = true,
-    deep = false,
+    targeted = NO_TARGETED_TIERS,
     signal,
   } = query;
 
@@ -314,7 +313,7 @@ export async function fetchEventsInRange(query: RangeQuery): Promise<GammaEvent[
   }
 
   if (discovery) {
-    const slices = deep ? DISCOVERY_SLICES : BROAD_DISCOVERY_SLICES;
+    const slices = discoverySlicesFor(targeted);
     for (const { slug, limit } of slices) {
       jobs.push(() =>
         fetchGammaPage({

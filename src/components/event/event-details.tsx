@@ -11,8 +11,13 @@ import { useFavorites } from "@/hooks/use-favorites";
 import { TimeZoneNote } from "@/components/shell/time-zone-note";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { getCategoryMeta } from "@/lib/categories";
-import { isSettled } from "@/lib/curation/types";
-import type { CuratedCalendarEvent, EventStatus, RelatedMarket } from "@/lib/curation/types";
+import { NO_TARGETED_TIERS, isSettled, parseTierKey, tierKey } from "@/lib/curation/types";
+import type {
+  CuratedCalendarEvent,
+  EventStatus,
+  RelatedMarket,
+  TargetedTiers,
+} from "@/lib/curation/types";
 import { fromDayKey } from "@/lib/dates";
 import { formatFullUsd } from "@/lib/format";
 import { emphasisOf } from "@/lib/emphasis";
@@ -34,6 +39,12 @@ export type EventDetailsProps = {
   onOpenChange: (open: boolean) => void;
   /** Which calendar the event came from — the legs are fetched per month. */
   includeSmallerMarkets?: boolean;
+  /**
+   * And at which tiers, for the same reason: a `targetedOnly` event exists only
+   * in a build that asked for its category's tier, so its legs have to be
+   * fetched from that same build or they come back empty.
+   */
+  targeted?: TargetedTiers;
 };
 
 /**
@@ -46,6 +57,7 @@ export type EventDetailsProps = {
 function useRelatedMarkets(
   event: CuratedCalendarEvent | null,
   includeSmallerMarkets: boolean,
+  targeted: TargetedTiers,
 ) {
   React.useSyncExternalStore(
     subscribeToRelatedMarkets,
@@ -54,9 +66,12 @@ function useRelatedMarkets(
   );
 
   const monthKey = event?.displayDate.slice(0, 7);
+  // Depended on by its canonical string rather than by the object, which is a
+  // fresh literal on every render of the shell and would refire this forever.
+  const tier = tierKey(targeted);
   React.useEffect(() => {
-    if (monthKey) ensureRelatedMarkets(monthKey, includeSmallerMarkets);
-  }, [monthKey, includeSmallerMarkets]);
+    if (monthKey) ensureRelatedMarkets(monthKey, includeSmallerMarkets, parseTierKey(tier));
+  }, [monthKey, includeSmallerMarkets, tier]);
 
   if (!event) return EMPTY_MARKETS;
   // An event that arrived with its legs attached — from a payload built before
@@ -84,9 +99,10 @@ export function EventDetails({
   open,
   onOpenChange,
   includeSmallerMarkets = false,
+  targeted = NO_TARGETED_TIERS,
 }: EventDetailsProps) {
   const isDesktop = useIsDesktop();
-  const relatedMarkets = useRelatedMarkets(event, includeSmallerMarkets);
+  const relatedMarkets = useRelatedMarkets(event, includeSmallerMarkets, targeted);
 
   if (isDesktop) {
     return (

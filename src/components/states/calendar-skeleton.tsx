@@ -3,6 +3,7 @@
 import { Skeleton } from "@/components/ui/primitives";
 import { WEEKDAY_LABELS, WEEKDAY_LABELS_SHORT } from "@/lib/calendar";
 import type { CalendarView } from "@/lib/url-state";
+import { cn } from "@/lib/utils";
 
 /**
  * Skeletons shaped like the view they stand in for.
@@ -103,33 +104,61 @@ function WeekSkeleton() {
   );
 }
 
+/**
+ * One day as a board of hour columns — the same shape the loaded view has, so
+ * the swap is a change of content rather than of layout. A skeleton that
+ * guesses a different structure makes the real view look like it jumped on
+ * arrival.
+ */
 function AgendaSkeleton() {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface">
-      {Array.from({ length: 3 }, (_, group) => (
-        <div key={group}>
-          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="ml-auto h-3 w-14" />
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5">
+        <Skeleton className="h-4 w-44" />
+        <Skeleton className="ml-auto h-3 w-14" />
+      </div>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Uneven on purpose: a real day is one busy hour and several quiet
+            ones, and a row of identical columns reads as a table. */}
+        {[2, 1, 3, 1, 2].map((cards, column) => (
+          <div
+            key={column}
+            className="flex w-[232px] shrink-0 flex-col border-r border-border sm:w-[256px]"
+          >
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2.5 py-1.5">
+              <Skeleton className="h-3 w-10" />
+              <Skeleton className="ml-auto h-2.5 w-3" />
+            </div>
+            <div className="flex flex-col gap-1.5 p-1.5">
+              {Array.from({ length: cards }, (_, card) => {
+                // The first card of a column stands in for a featured event.
+                const featured = card === 0 && cards > 1;
+                return (
+                  <div
+                    key={card}
+                    className="flex flex-col gap-1 rounded-md border border-border p-2"
+                  >
+                    <div className="flex items-start gap-2">
+                      <Skeleton
+                        className={cn("shrink-0 rounded", featured ? "size-10" : "size-6")}
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <Skeleton className="h-3 w-full" />
+                        <Skeleton className={cn("h-3", featured ? "w-4/5" : "w-2/3")} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Skeleton className="size-1.5 shrink-0 rounded-full" />
+                      <Skeleton className="h-2.5 w-2/3" />
+                      <Skeleton className="ml-auto h-2.5 w-6" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="divide-y divide-border">
-            {Array.from({ length: 3 }, (_, row) => (
-              <div
-                key={row}
-                className="flex min-h-[60px] items-center gap-2.5 px-3 py-2.5 sm:min-h-[56px] sm:gap-3 sm:py-2"
-              >
-                <Skeleton className="h-3 w-12" />
-                <Skeleton className="size-5 rounded" />
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <Skeleton className="h-3.5 w-2/3" />
-                  <Skeleton className="h-3 w-2/5" />
-                </div>
-                <Skeleton className="h-3.5 w-8" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

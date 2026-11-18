@@ -35,13 +35,26 @@ function DialogOverlay({
 
 export function DialogContent({
   className,
+  overlayClassName,
   children,
   showClose = true,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & { showClose?: boolean }) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  showClose?: boolean;
+  /**
+   * Classes for the backdrop, which is otherwise unreachable.
+   *
+   * `DialogOverlay` is private and rendered by this component, so a caller that
+   * wants a different backdrop has no way to ask for one — and the Sport picker
+   * wants exactly that: a pale wash that leaves the calendar recognisable
+   * behind it, where every other dialog here wants the standard dark scrim.
+   * One optional prop, additive, and every existing caller keeps the default.
+   */
+  overlayClassName?: string;
+}) {
   return (
     <DialogPrimitive.Portal>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         className={cn(
           "fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2",

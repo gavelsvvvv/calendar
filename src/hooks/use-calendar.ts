@@ -10,7 +10,7 @@ import {
   monthCacheKey,
   monthKeyForView,
   monthsVersion,
-  readMonth,
+  readMonthFor,
   retainMonths,
   seedMonth,
   serverMonthsVersion,
@@ -20,16 +20,17 @@ import {
 import { buildCalendarIndex, EMPTY_INDEX, type CalendarIndex } from "@/lib/calendar-index";
 import { localizeEvents } from "@/lib/localize";
 import { ensureRelatedMarkets } from "@/lib/related-markets";
-import { fromDayKey, toMonthKey } from "@/lib/dates";
+import { fromDayKey, toDateKey, toMonthKey } from "@/lib/dates";
 import { useTodayKey } from "@/hooks/use-now";
 import { useTimeZone } from "@/hooks/use-time-zone";
 import type { CuratedDataset } from "@/lib/curation/dataset";
 import {
   ALL_CATEGORIES,
   filterEvents,
-  needsTargetedTier,
+  targetedTiers,
   type CalendarFilters,
 } from "@/lib/curation/filters";
+import { parseTierKey, tierKey } from "@/lib/curation/types";
 import type { CuratedCalendarEvent } from "@/lib/curation/types";
 import {
   parseCalendarUrlState,
@@ -83,6 +84,15 @@ export type CalendarController = {
   isLoading: boolean;
   /** Something on screen, a newer copy on the way. */
   isRefreshing: boolean;
+  /**
+   * What is on screen is a stand-in from a *different* filter build — the
+   * reader changed something that needs a new fetch, and it is in flight.
+   *
+   * Narrower than `isRefreshing`, which is also true for the quiet revalidation
+   * that runs every few minutes. This one is worth saying out loud: a deep
+   * "smaller markets" build takes around ten seconds.
+   */
+  isSwitching: boolean;
   /** True when the data on screen came from cache after a failed refresh. */
   isStale: boolean;
   error?: string;
@@ -141,16 +151,16 @@ export function useCalendar(
        * Which month entry `initialDataset` is. Pinned: the anchor moves, this
        * doesn't.
        *
-       * The tier has to match what the server actually built, which is why it
-       * is derived from the same `needsTargetedTier` the server used rather
-       * than hardcoded: a `?sports=tennis` link is server-rendered deep, and
-       * filing that payload under the shallow key would leave it unread and
-       * refetch the month the reader is already looking at.
+       * The tiers have to match what the server actually built, which is why
+       * they are derived from the same `targetedTiers` the server used rather
+       * than hardcoded: a `?sports=tennis` link is server-rendered with the
+       * sports tier, and filing that payload under the untargeted key would
+       * leave it unread and refetch the month the reader is already looking at.
        */
       key: monthCacheKey(
         toMonthKey(parsed.anchor),
         parsed.filters.includeSmallerMarkets,
-        needsTargetedTier(parsed.filters),
+        targetedTiers(parsed.filters),
       ),
     };
   });
@@ -160,20 +170,31 @@ export function useCalendar(
   const smaller = filters.includeSmallerMarkets;
 
   /*
-   * Whether this month has to be fetched with the Sport/eSport sub-filter tier.
+   * Which of the two sub-filter tiers this month has to be fetched with.
    *
-   * True only while a *strict subset* of the sports or the games is ticked —
-   * the state that unlocks the $500 floor. "All Sports" is not it, and neither
-   * is an empty selection, so the overwhelmingly common reader never requests
-   * the tier and never pays the ~350KB it costs. Flipping this refetches the
-   * month under a different cache key rather than mutating the one on screen,
-   * so the calendar keeps rendering the data it already has until the wider
-   * response lands.
+   * A tier is set only while a *strict subset* of that category's sports or
+   * games is ticked — the state that unlocks its $500 floor — and only while
+   * the category itself is showing. "All Sports" is not it, and neither is an
+   * empty selection, so the overwhelmingly common reader never requests either
+   * tier and never pays the bytes.
+   *
+   * Two flags, never one, and per category all the way down: narrowing eSport
+   * must not buy the fifteen *sport* discovery slices, and it must not admit
+   * the 222 targeted sport rows that moved the Sports count from 43 to 266.
+   *
+   * Flipping either refetches the month under a different cache key rather than
+   * mutating the one on screen — and `readMonthFor` keeps the *previous* key's
+   * data on screen meanwhile, which is what stops a tick from blanking the
+   * whole calendar.
+   *
+   * Memoised on its canonical string, so the object below is stable across
+   * renders and the effects that depend on it fire when the tiers change rather
+   * than on every keystroke in the search box.
    */
-  const deep = needsTargetedTier(filters);
+  const tier = tierKey(targetedTiers(filters));
+  const targeted = useMemo(() => parseTierKey(tier), [tier]);
 
   const monthKey = monthKeyForView(view, anchor);
-  const cacheKey = monthCacheKey(monthKey, smaller, deep);
 
   /*
    * The month store is read during render, so React has to be subscribed to it.
@@ -183,11 +204,13 @@ export function useCalendar(
    * for already sitting in the cache, unread.
    */
   useSyncExternalStore(subscribeToMonths, monthsVersion, serverMonthsVersion);
-  const entry = readMonth(cacheKey);
+  const entry = readMonthFor(monthKey, smaller, targeted);
 
   // Before the seeding effect has run, the server's own dataset stands in for
   // its month — otherwise the first paint is a skeleton over data we have.
-  const dataset = entry.dataset ?? (cacheKey === initial.key ? initialDataset : undefined);
+  const dataset =
+    entry.dataset ??
+    (monthCacheKey(monthKey, smaller, targeted) === initial.key ? initialDataset : undefined);
 
   /*
    * Into the viewer's timezone, once per dataset.
@@ -217,10 +240,10 @@ export function useCalendar(
     retainMonths(
       new Set([monthKey, shiftMonthKey(monthKey, 1), shiftMonthKey(monthKey, -1)]),
       smaller,
-      deep,
+      targeted,
     );
-    ensureMonth(monthKey, smaller, deep);
-  }, [monthKey, smaller, deep]);
+    ensureMonth(monthKey, smaller, targeted);
+  }, [monthKey, smaller, targeted]);
 
   /**
    * Refresh a month that has gone stale, when there is someone there to see it.
@@ -232,7 +255,7 @@ export function useCalendar(
   useEffect(() => {
     const revalidate = () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      ensureMonth(monthKey, smaller, deep);
+      ensureMonth(monthKey, smaller, targeted);
     };
     document.addEventListener("visibilitychange", revalidate);
     window.addEventListener("focus", revalidate);
@@ -242,7 +265,7 @@ export function useCalendar(
       window.removeEventListener("focus", revalidate);
       window.clearInterval(timer);
     };
-  }, [monthKey, smaller, deep]);
+  }, [monthKey, smaller, targeted]);
 
   /**
    * Prefetch the neighbours: next month now, previous month when idle.
@@ -260,14 +283,14 @@ export function useCalendar(
   const hasData = dataset !== undefined;
   useEffect(() => {
     if (!hasData) return;
-    ensureMonth(shiftMonthKey(monthKey, 1), smaller, deep);
+    ensureMonth(shiftMonthKey(monthKey, 1), smaller, targeted);
     return whenIdle(() => {
-      ensureMonth(shiftMonthKey(monthKey, -1), smaller, deep);
+      ensureMonth(shiftMonthKey(monthKey, -1), smaller, targeted);
       // And the detail the calendar deliberately did not download, so the first
       // event opened in this month has it already.
-      ensureRelatedMarkets(monthKey, smaller);
+      ensureRelatedMarkets(monthKey, smaller, targeted);
     });
-  }, [monthKey, smaller, deep, hasData]);
+  }, [monthKey, smaller, targeted, hasData]);
 
   /* ------------------------------------------------------------- the URL */
 
@@ -315,9 +338,32 @@ export function useCalendar(
   const setView = useCallback(
     (next: CalendarView) =>
       commit((current) => {
-        // Month and agenda anchor on the 1st; switching straight to week would
-        // otherwise open the week containing the 1st, often already past.
+        // Month anchors on the 1st; switching straight to a day-anchored view
+        // would otherwise open the week — or the day — containing the 1st,
+        // often already past.
         const now = new Date();
+
+        /*
+         * Agenda is a single day, so switching into it has to choose one.
+         *
+         * A day the reader already picked out wins: clicking the 14th in Month
+         * and pressing Agenda means the 14th, not today. Failing that it is
+         * today when today is in view, and the start of the anchored month
+         * otherwise — from where the view's own "next day with events" escape
+         * takes over, since nothing here knows which days hold anything.
+         *
+         * `selected` is written too, so the mini-calendar and the month grid
+         * mark the day the agenda is showing instead of keeping a stale one.
+         */
+        if (next === "agenda") {
+          const day = current.selected
+            ? fromDayKey(current.selected)
+            : isSameMonth(current.anchor, now)
+              ? now
+              : startOfMonth(current.anchor);
+          return { view: next, anchor: day, selected: toDateKey(day) };
+        }
+
         return next === "week" && isSameMonth(current.anchor, now)
           ? { view: next, anchor: now }
           : { view: next };
@@ -329,12 +375,22 @@ export function useCalendar(
 
   const step = useCallback(
     (direction: 1 | -1) =>
-      commit((current) => ({
-        anchor:
-          current.view === "week"
-            ? addWeeks(current.anchor, direction)
-            : addMonths(startOfMonth(current.anchor), direction),
-      })),
+      commit((current) => {
+        // Agenda steps a day at a time — it is the only control that moves it,
+        // now that the view no longer scrolls from one day into the next — and
+        // carries the selection with it so the rest of the UI agrees on which
+        // day is open.
+        if (current.view === "agenda") {
+          const day = addDays(current.anchor, direction);
+          return { anchor: day, selected: toDateKey(day) };
+        }
+        return {
+          anchor:
+            current.view === "week"
+              ? addWeeks(current.anchor, direction)
+              : addMonths(startOfMonth(current.anchor), direction),
+        };
+      }),
     [commit],
   );
 
@@ -346,7 +402,12 @@ export function useCalendar(
       commit((current) => {
         const now = new Date();
         return {
-          anchor: current.view === "week" ? now : startOfMonth(now),
+          // Week and agenda are about a day, so Today means this day; Month is
+          // about a month, so it means this month with today picked out.
+          anchor:
+            current.view === "week" || current.view === "agenda"
+              ? now
+              : startOfMonth(now),
           selected: today,
         };
       }),
@@ -436,8 +497,8 @@ export function useCalendar(
   );
 
   const retry = useCallback(
-    () => ensureMonth(monthKey, smaller, deep, { force: true }),
-    [monthKey, smaller, deep],
+    () => ensureMonth(monthKey, smaller, targeted, { force: true }),
+    [monthKey, smaller, targeted],
   );
 
   /* ------------------------------------------------------------ derived */
@@ -448,17 +509,19 @@ export function useCalendar(
    * results — and `index.byDay` keeping its identity is what finally lets each
    * view's `React.memo` do its job.
    */
+  const context = useMemo(() => ({ favorites: favorites.ids }), [favorites.ids]);
+
   const events = useMemo(
-    () => filterEvents(allEvents, filters, { favorites: favorites.ids }),
-    [allEvents, filters, favorites.ids],
+    () => filterEvents(allEvents, filters, context),
+    [allEvents, filters, context],
   );
 
   const index = useMemo(
     () =>
       allEvents.length === 0
         ? EMPTY_INDEX
-        : buildCalendarIndex({ allEvents, events, monthKey, today }),
-    [allEvents, events, monthKey, today],
+        : buildCalendarIndex({ allEvents, events, monthKey, today, filters, context }),
+    [allEvents, events, monthKey, today, filters, context],
   );
 
   return {
@@ -474,6 +537,7 @@ export function useCalendar(
     // with something to show keeps showing it while a newer copy lands.
     isLoading: dataset === undefined,
     isRefreshing: dataset !== undefined && entry.loading,
+    isSwitching: dataset !== undefined && entry.loading && entry.fallback,
     isStale: dataset?.source === "cached",
     error: entry.error ?? dataset?.error,
     setView,

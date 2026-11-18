@@ -43,7 +43,7 @@ async function main() {
   const dataset = await buildCuratedDataset({
     start: start.toISOString(),
     end: end.toISOString(),
-    includeTargeted: true,
+    targeted: { sports: true, esports: true },
   });
   const buildMs = Date.now() - t0;
 

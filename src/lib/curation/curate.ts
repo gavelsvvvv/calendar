@@ -4,11 +4,11 @@ import {
   MAX_EVENTS_PER_CATEGORY_PER_DAY,
   MAX_EVENTS_PER_DAY,
   MAX_TARGETED_PER_SPORT_PER_DAY,
-  RELAXED_CAP_FACTOR,
   TARGETED_VOLUME_FLOOR,
 } from "@/config/market-exclusions";
 import { categoryFor, displayTags } from "../categories";
 import { MARKET_TIME_ZONE, toDayKey } from "../dates";
+import { zonedDayKey } from "../timezone";
 import type { GammaEvent, GammaMarket } from "../polymarket/gamma-types";
 import {
   parseGammaInstant,
@@ -19,6 +19,7 @@ import {
 import { findExclusionReason, meetsRelevanceFloor } from "./exclusions";
 import { groupEvents, stripDerivativeSuffix, type EventGroup } from "./grouping";
 import { assignImportanceLevels, computeImportanceScore } from "./importance";
+import { NO_TARGETED_TIERS } from "./types";
 import type {
   CurationOptions,
   CurationStats,
@@ -165,6 +166,13 @@ const timeFormatter = new Intl.DateTimeFormat("en-GB", {
 export function resolveTime(
   iso: string,
   hintIso?: string,
+  options: {
+    /**
+     * The instant is a fixture's own kickoff (`gameStartTime` on an event
+     * `isFixture` accepted), not a deadline. See below for what that changes.
+     */
+    kickoff?: boolean;
+  } = {},
 ): {
   time: string;
   isAllDay: boolean;
@@ -188,10 +196,37 @@ export function resolveTime(
 
   const uh = date.getUTCHours();
   const um = date.getUTCMinutes();
+  const marketTime = timeFormatter.format(date);
+
+  /*
+   * A kickoff is a real instant, and the placeholder tests below must not
+   * touch it.
+   *
+   * They exist for deadlines, where Polymarket writes "some time that day" as
+   * 00:00Z, 12:00Z or midnight Eastern. A fixture's `gameStartTime` is not
+   * written that way — and the tests were firing on it anyway, because those
+   * same instants are among the most common real start times there are:
+   *
+   *   Lakers vs. Hawks            00:00Z  = 19:00 ET, the standard NBA tip-off
+   *   LoL: FENNEL vs Nothin'Here  05:00Z  = midnight ET, an Asian evening slot
+   *   Vietnam vs. Chinese Taipei  12:00Z  = 19:00 in Hanoi
+   *
+   * All three were sitting in the all-day band on 10 November 2026 while
+   * Polymarket's own page showed the exact start. Every NBA game tipping off
+   * at 7pm Eastern — which is most of the regular season — went the same way.
+   *
+   * The one shape still read as a placeholder is a minute-to-midnight close,
+   * in either clock: no fixture is scheduled for 23:59, and a tournament
+   * outright that borrows the field to say "ends that day" uses exactly that.
+   */
+  if (options.kickoff) {
+    const deadline =
+      (uh === 23 && um >= 58) || marketTime === "23:59" || marketTime === "23:58";
+    if (!deadline) return { time: marketTime, isAllDay: false, timeKind: "scheduled" };
+  }
+
   const utcPlaceholder =
     (uh === 0 && um === 0) || (uh === 23 && um >= 58) || (uh === 12 && um === 0);
-
-  const marketTime = timeFormatter.format(date);
   // The same convention written in Eastern time instead of UTC, which is how
   // every US macro release arrives: "July Inflation US - Annual" ends at
   // 03:59Z, midnight ET, and is no more scheduled for 23:59 than a bare date
@@ -517,7 +552,17 @@ function buildCuratedEvent(
   const status = resolveStatus(members, scheduled.iso, now);
   const resolved = settleDate(scheduled, status, members);
 
-  const displayDate = toDayKey(resolved.iso);
+  /*
+   * A fixture's kickoff is an instant, so its day is wherever that instant
+   * falls in market time — never the bare-date reading `toDayKey` applies to an
+   * exact 00:00Z. That rule exists for deadlines; on a kickoff it filed a 7pm
+   * Eastern NBA game under the *next* day, and `resolveTime` then dropped it
+   * into the all-day band there.
+   */
+  const kickoff = resolved.source === "gameStartTime";
+  const displayDate = kickoff
+    ? zonedDayKey(resolved.iso, MARKET_TIME_ZONE)
+    : toDayKey(resolved.iso);
   if (!displayDate) return null;
 
   // Combined figures — the group is one event, so its numbers are the sum.
@@ -580,7 +625,9 @@ function buildCuratedEvent(
 
   if (!broadEligible && !targetedEligible) return null;
 
-  const { time, isAllDay, timeKind } = resolveTime(resolved.iso, resolved.timeHintIso);
+  const { time, isAllDay, timeKind } = resolveTime(resolved.iso, resolved.timeHintIso, {
+    kickoff,
+  });
   const { probability, leadingOutcome } = resolveLeading(canonical, members, status);
 
   const importanceScore = computeImportanceScore({
@@ -761,13 +808,39 @@ export function curateEvents(
    * same calendar it was before the feature existed — `unique` below is the
    * same array, and every line after it is the code that was already there.
    */
+  const wanted = options.targeted ?? NO_TARGETED_TIERS;
+  /*
+   * Admitted per category, and that qualifier is the fix for a real regression.
+   *
+   * This used to read `options.includeTargeted`, one boolean for both tiers, so
+   * a reader who narrowed eSport to CS2 was served the 222 sport rows that only
+   * a *Sport* sub-selection can reach. They are invisible in the grid — the
+   * client's `matchesSubFilter` hides them — but the sidebar counts what is
+   * loaded, so the Sports row read 266 instead of 43 and the reader had touched
+   * nothing to do with Sport. Asking each row which category it belongs to
+   * makes the leak impossible rather than merely unlikely.
+   */
+  const admitted = (event: CuratedCalendarEvent): boolean =>
+    event.category === "sports"
+      ? wanted.sports
+      : event.category === "esports"
+        ? wanted.esports
+        : /*
+           * A `targetedOnly` row outside the two sub-filtered categories cannot
+           * exist — the tier requires a resolved sport or game — but if one ever
+           * did, no selection could reach it, so nothing should carry it.
+           */
+          false;
+
   const hasTargeted = unique.some((e) => e.targetedOnly);
   const broadTier = hasTargeted ? unique.filter((e) => !e.targetedOnly) : unique;
-  const targetedTier =
-    hasTargeted && options.includeTargeted ? unique.filter((e) => e.targetedOnly) : [];
+  const targetedTier = hasTargeted
+    ? unique.filter((e) => e.targetedOnly && admitted(e))
+    : [];
 
-  if (hasTargeted && !options.includeTargeted) {
-    excludedBy["targeted-tier-not-requested"] = unique.length - broadTier.length;
+  if (hasTargeted && targetedTier.length < unique.length - broadTier.length) {
+    excludedBy["targeted-tier-not-requested"] =
+      unique.length - broadTier.length - targetedTier.length;
   }
 
   // Everything eligible for this build, which on a shallow one is the broad
@@ -780,7 +853,9 @@ export function curateEvents(
   const capped = options.skipDailyCaps
     ? pool
     : [
-        ...applyPerDayCaps(live, options.includeSmallerMarkets ?? false),
+        ...(options.broadDailyCaps === false
+          ? live
+          : applyPerDayCaps(live, options.includeSmallerMarkets ?? false)),
         ...retired,
         ...applyTargetedCaps(targetedTier),
       ];
@@ -846,8 +921,23 @@ function applyPerDayCaps(
   events: CuratedCalendarEvent[],
   includeSmallerMarkets: boolean,
 ): CuratedCalendarEvent[] {
-  const factor = includeSmallerMarkets ? RELAXED_CAP_FACTOR : 1;
-  const dailyLimit = MAX_EVENTS_PER_DAY * factor;
+  /*
+   * "Include smaller markets" means all of them, so it lifts the caps.
+   *
+   * The caps are what make the default calendar a digest rather than a
+   * listing, and they are still applied there. But under the toggle they only
+   * doubled — two sports a day became four — which turned "show me everything"
+   * into "show me slightly more", and nothing on screen said so. Measured on
+   * 9 November 2026 with the toggle on: ten NBA games and a dozen CS2 and LoL
+   * matches that day, four of each on the calendar. A reader asking for the
+   * full list was being shown a different digest.
+   *
+   * The volume floors still apply — relaxed, as before — so this is every
+   * event that clears its category's floor, not every row Gamma has.
+   */
+  if (includeSmallerMarkets) return events;
+
+  const dailyLimit = MAX_EVENTS_PER_DAY;
 
   const byDay = new Map<string, CuratedCalendarEvent[]>();
   for (const event of events) {
@@ -865,8 +955,7 @@ function applyPerDayCaps(
     const ordered = [...list].sort(byScore);
 
     const categoryLimit = (category: string) =>
-      (MAX_EVENTS_PER_CATEGORY_PER_DAY[category] ?? DEFAULT_MAX_PER_CATEGORY_PER_DAY) *
-      factor;
+      MAX_EVENTS_PER_CATEGORY_PER_DAY[category] ?? DEFAULT_MAX_PER_CATEGORY_PER_DAY;
 
     // Buckets in order of their best event — `ordered` is already sorted, so
     // insertion order into the map is exactly that.
@@ -884,7 +973,7 @@ function applyPerDayCaps(
     for (const [category, candidates] of byCategory) {
       if (taken.size >= dailyLimit) break;
       const guaranteed = Math.min(
-        GUARANTEED_SLOTS_PER_CATEGORY_PER_DAY * factor,
+        GUARANTEED_SLOTS_PER_CATEGORY_PER_DAY,
         categoryLimit(category),
         candidates.length,
       );

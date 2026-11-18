@@ -478,3 +478,47 @@ describe("dateSource is deterministic", () => {
     }
   });
 });
+
+/*
+ * A kickoff is a real instant, and the placeholder heuristics that exist for
+ * deadlines must not swallow it. On 10 November 2026 three NBA games at 00:00Z
+ * (19:00 ET) and a LoL match at 05:00Z (midnight ET) all sat in the all-day
+ * band while Polymarket's own page showed their exact start.
+ */
+describe("a kickoff is never mistaken for a placeholder", () => {
+  const kickoffAt = (gameStartTime: string) => {
+    const resolved = resolveEventDate(fixture({ markets: [{ id: "m1", gameStartTime }] }));
+    expect(resolved?.source).toBe("gameStartTime");
+    return resolveTime(resolved!.iso, resolved!.timeHintIso, { kickoff: true });
+  };
+
+  it("keeps a 7pm Eastern NBA tip-off (00:00Z) timed", () => {
+    const { time, isAllDay, timeKind } = kickoffAt("2026-11-10 00:00:00+00");
+    expect(isAllDay).toBe(false);
+    expect(timeKind).toBe("scheduled");
+    expect(time).toBe("19:00");
+  });
+
+  it("keeps a midnight-Eastern kickoff (05:00Z in November) timed", () => {
+    const { time, isAllDay } = kickoffAt("2026-11-10 05:00:00+00");
+    expect(isAllDay).toBe(false);
+    expect(time).toBe("00:00");
+  });
+
+  it("keeps a noon-UTC kickoff timed", () => {
+    const { time, isAllDay } = kickoffAt("2026-11-11 12:00:00+00");
+    expect(isAllDay).toBe(false);
+    expect(time).toBe("07:00");
+  });
+
+  it("still reads a minute-to-midnight close as a deadline, even on a fixture", () => {
+    expect(kickoffAt("2026-11-17 04:59:00+00").isAllDay).toBe(true);
+    expect(kickoffAt("2026-11-17 23:59:00+00").isAllDay).toBe(true);
+  });
+
+  it("leaves the placeholder reading in force when the instant is not a kickoff", () => {
+    // A bare-date deadline at 00:00Z is still "some time that day".
+    expect(resolveTime("2026-11-10T00:00:00Z").isAllDay).toBe(true);
+    expect(resolveTime("2026-11-10T00:00:00Z", undefined, { kickoff: false }).isAllDay).toBe(true);
+  });
+});

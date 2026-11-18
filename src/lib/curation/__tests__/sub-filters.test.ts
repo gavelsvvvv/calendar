@@ -6,11 +6,12 @@ import {
   DEFAULT_FILTERS,
   esportSelection,
   filterEvents,
-  needsTargetedTier,
+  targetedTiers,
   sportSelection,
   type CalendarFilters,
 } from "../filters";
-import type { CuratedCalendarEvent } from "../types";
+import { NO_TARGETED_TIERS, parseTierKey, tierKey } from "../types";
+import type { CuratedCalendarEvent, TargetedTiers } from "../types";
 import { parseCalendarUrlState, serializeCalendarUrlState } from "@/lib/url-state";
 import { ESPORT_IDS, SPORT_IDS } from "@/lib/sports/taxonomy";
 import { MAX_TARGETED_PER_SPORT_PER_DAY } from "@/config/market-exclusions";
@@ -120,7 +121,9 @@ describe("§39 A–E · sport sub-filter", () => {
     expect(shown).toContain("tennis-targeted");
     expect(shown).not.toContain("nfl-broad");
     expect(sportSelection(filters).targeted).toBe(true);
-    expect(needsTargetedTier(filters)).toBe(true);
+    // The sports tier, and only the sports tier — narrowing Sport must never
+    // buy the esport one.
+    expect(targetedTiers(filters)).toEqual({ sports: true, esports: false });
   });
 
   it("D) Sport on + three sports → those three, still targeted", () => {
@@ -130,15 +133,15 @@ describe("§39 A–E · sport sub-filter", () => {
     };
     const shown = show(ALL, filters);
     expect(shown).toEqual(expect.arrayContaining(["tennis-broad", "tennis-targeted", "nfl-broad"]));
-    expect(needsTargetedTier(filters)).toBe(true);
+    expect(targetedTiers(filters)).toEqual({ sports: true, esports: false });
   });
 
   it("E) Sport on + All Sports → NOT the targeted tier", () => {
     expect(sportSelection(DEFAULT_FILTERS).targeted).toBe(false);
-    expect(needsTargetedTier(DEFAULT_FILTERS)).toBe(false);
+    expect(targetedTiers(DEFAULT_FILTERS)).toEqual({ sports: false, esports: false });
     // And ticking every box by hand is the same state as never touching it.
     const everyBoxTicked: CalendarFilters = { ...DEFAULT_FILTERS, sports: [...SPORT_IDS] };
-    expect(needsTargetedTier(everyBoxTicked)).toBe(false);
+    expect(targetedTiers(everyBoxTicked)).toEqual({ sports: false, esports: false });
     expect(show(ALL, everyBoxTicked)).toEqual(show(ALL, DEFAULT_FILTERS));
   });
 });
@@ -158,6 +161,8 @@ describe("§39 F–H · esport sub-filter", () => {
     expect(shown).toContain("cs2-targeted");
     expect(shown).not.toContain("dota-broad");
     expect(esportSelection(filters).targeted).toBe(true);
+    // The mirror of C: the esport tier alone, with Sport untouched.
+    expect(targetedTiers(filters)).toEqual({ sports: false, esports: true });
   });
 
   it("H) eSport on + CS2 + Dota 2 + LoL → those games only", () => {
@@ -197,7 +202,10 @@ describe("§39 I–J · clearing and remembering", () => {
     expect(shown).toContain("politics");
     expect(shown).toContain("cs2-broad");
     // An empty selection is not a targeted one, so it must not widen the floor.
-    expect(needsTargetedTier({ ...DEFAULT_FILTERS, sports: [] })).toBe(false);
+    expect(targetedTiers({ ...DEFAULT_FILTERS, sports: [] })).toEqual({
+      sports: false,
+      esports: false,
+    });
   });
 
   it("an unresolved sport is never hidden by a sub-filter", () => {
@@ -380,7 +388,7 @@ describe("curation builds two tiers without disturbing the first", () => {
     expect(shallow.events.map((e) => e.id)).toEqual(["1"]);
     expect(shallow.stats.excludedBy["targeted-tier-not-requested"]).toBe(2);
 
-    const deep = curateEvents(raw, { now: NOW, includeTargeted: true });
+    const deep = curateEvents(raw, { now: NOW, targeted: { sports: true, esports: true } });
     expect(deep.events.filter((e) => e.targetedOnly).map((e) => e.id).sort()).toEqual(["2", "3"]);
   });
 
@@ -389,7 +397,7 @@ describe("curation builds two tiers without disturbing the first", () => {
     const withTargeted = [...broadOnly, match("2", 900), match("3", 700), match("5", 600)];
 
     const before = curateEvents(broadOnly, { now: NOW });
-    const after = curateEvents(withTargeted, { now: NOW, includeTargeted: true });
+    const after = curateEvents(withTargeted, { now: NOW, targeted: { sports: true, esports: true } });
 
     // The two events the broad calendar showed are the same two, in the same
     // order, with the same levels — the $500 rows cannot displace them, which
@@ -404,14 +412,14 @@ describe("curation builds two tiers without disturbing the first", () => {
 
   it("excludes anything under the targeted floor even in a deep build", () => {
     const raw = [match("1", 499), match("2", 501)];
-    const deep = curateEvents(raw, { now: NOW, includeTargeted: true });
+    const deep = curateEvents(raw, { now: NOW, targeted: { sports: true, esports: true } });
     expect(deep.events.map((e) => e.id)).toEqual(["2"]);
   });
 
   it("caps one sport on one day, keeping the biggest matches", () => {
     // Twenty tennis matches on a single day — a qualifying session.
     const raw = Array.from({ length: 20 }, (_, i) => match(String(i + 10), 1000 + i * 10));
-    const deep = curateEvents(raw, { now: NOW, includeTargeted: true });
+    const deep = curateEvents(raw, { now: NOW, targeted: { sports: true, esports: true } });
     const targeted = deep.events.filter((e) => e.targetedOnly);
     expect(targeted).toHaveLength(MAX_TARGETED_PER_SPORT_PER_DAY);
     // Volume-ranked, so the survivors are the top of the session.
@@ -424,7 +432,7 @@ describe("curation builds two tiers without disturbing the first", () => {
       ...Array.from({ length: 8 }, (_, i) => match(`a${i}`, 1000 + i, "10")),
       ...Array.from({ length: 8 }, (_, i) => match(`b${i}`, 1000 + i, "11")),
     ];
-    const deep = curateEvents(raw, { now: NOW, includeTargeted: true });
+    const deep = curateEvents(raw, { now: NOW, targeted: { sports: true, esports: true } });
     expect(deep.events.filter((e) => e.targetedOnly)).toHaveLength(16);
   });
 
@@ -438,7 +446,58 @@ describe("curation builds two tiers without disturbing the first", () => {
       liquidity: 0,
       tags: [{ id: "s", label: "Sports", slug: "sports" }],
     });
-    const deep = curateEvents([unmapped], { now: NOW, includeTargeted: true });
+    const deep = curateEvents([unmapped], { now: NOW, targeted: { sports: true, esports: true } });
     expect(deep.events).toHaveLength(0);
+  });
+});
+
+describe("the canonical tier string", () => {
+  const ALL_TIERS: TargetedTiers[] = [
+    { sports: false, esports: false },
+    { sports: true, esports: false },
+    { sports: false, esports: true },
+    { sports: true, esports: true },
+  ];
+
+  it("has exactly four values, and Sport and eSport never share one", () => {
+    const keys = ALL_TIERS.map(tierKey);
+    expect(keys).toEqual(["", "sports", "esports", "esports,sports"]);
+    // The property that matters: no two distinct tier sets collide, which is
+    // what stops a narrowed eSport from overwriting a narrowed Sport's build.
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it("round-trips every one of them", () => {
+    for (const tiers of ALL_TIERS) {
+      expect(parseTierKey(tierKey(tiers))).toEqual(tiers);
+    }
+  });
+
+  it("survives a query string, which a `+` separator did not", () => {
+    /*
+     * The regression this test exists for. `+` is the URL encoding of a space,
+     * so `targeted=esports+sports` reached the server as `"esports sports"` and
+     * parsed as *neither* tier — a narrowed reader silently served the
+     * untargeted calendar. `URLSearchParams` escapes it on the way out, so the
+     * browser never showed it; only a hand-written URL did.
+     */
+    const both = { sports: true, esports: true };
+    const params = new URLSearchParams(`targeted=${tierKey(both)}`);
+    expect(parseTierKey(params.get("targeted"))).toEqual(both);
+  });
+
+  it("reads the separators a hand-written URL might use", () => {
+    const both = { sports: true, esports: true };
+    for (const raw of ["esports,sports", "sports,esports", "esports+sports", "esports sports"]) {
+      expect(parseTierKey(raw)).toEqual(both);
+    }
+  });
+
+  it("cannot be widened by anything it does not recognise", () => {
+    for (const raw of ["", null, undefined, "all", "deep", "1", "tennis", "sports;esports"]) {
+      expect(parseTierKey(raw)).toEqual(NO_TARGETED_TIERS);
+    }
+    // A real tier beside a made-up one yields the real one and nothing more.
+    expect(parseTierKey("sports,bogus")).toEqual({ sports: true, esports: false });
   });
 });

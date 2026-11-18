@@ -316,6 +316,51 @@ describe("curateEvents", () => {
     expect(events.every((e) => e.volume >= 130_000)).toBe(true);
   });
 
+  it("keeps every event over the floor when the calendar turns the caps off", () => {
+    // The calendar's own build passes `broadDailyCaps: false`. Measured case:
+    // eight NBA games on one evening, $200K–$1.26M each, of which the capped
+    // calendar showed one.
+    const night = Array.from({ length: 8 }, (_, i) =>
+      gammaEvent({
+        id: `nba${i}`,
+        title: `Home ${i} vs. Away ${i}`,
+        slug: `nba-${i}`,
+        gameId: 6_000 + i,
+        endDate: "2026-08-20T23:00:00Z",
+        volume: 1_260_000 - i * 130_000,
+        liquidity: 4_000_000,
+        tags: [{ slug: "sports", label: "Sports" }],
+      }),
+    );
+    const capped = curateEvents(night, { now: NOW }).events.length;
+    const uncapped = curateEvents(night, { now: NOW, broadDailyCaps: false }).events;
+    expect(capped).toBeLessThan(8);
+    expect(uncapped).toHaveLength(8);
+  });
+
+  it("still holds the targeted tier to its own cap when the broad caps are off", () => {
+    // Uncapping the broad tier must not uncap the $500 one: a Tennis sub-filter
+    // can otherwise return every Challenger match on the tour.
+    const tennis = Array.from({ length: 40 }, (_, i) =>
+      gammaEvent({
+        id: `t${i}`,
+        title: `Player ${i} vs Player ${i + 100}`,
+        slug: `atp-challenger-${i}`,
+        gameId: 7_500 + i,
+        endDate: "2026-08-20T12:00:00Z",
+        volume: 2_000 + i,
+        liquidity: 500,
+        tags: [{ slug: "sports", label: "Sports" }, { slug: "tennis", label: "Tennis" }],
+      }),
+    );
+    const { events } = curateEvents(tennis, {
+      now: NOW,
+      broadDailyCaps: false,
+      targeted: { sports: true, esports: false },
+    });
+    expect(events.length).toBeLessThanOrEqual(12);
+  });
+
   it("lets a crowded category leave room for the others", () => {
     const sports = Array.from({ length: 30 }, (_, i) =>
       gammaEvent({

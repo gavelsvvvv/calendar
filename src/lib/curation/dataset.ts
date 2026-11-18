@@ -4,7 +4,12 @@ import { toMonthKey } from "../dates";
 import { fetchEventsInRange } from "../polymarket/client";
 import type { GammaEvent } from "../polymarket/gamma-types";
 import { curateEvents } from "./curate";
-import type { CuratedCalendarEvent, CurationStats } from "./types";
+import { NO_TARGETED_TIERS, tierKey } from "./types";
+import type {
+  CuratedCalendarEvent,
+  CurationStats,
+  TargetedTiers,
+} from "./types";
 
 /**
  * Server-side assembly of the curated calendar.
@@ -52,34 +57,81 @@ export function withoutRelatedMarkets(dataset: CuratedDataset): CuratedDataset {
  */
 const BUILD_TIMEOUT_MS = 25_000;
 
+/*
+ * How deep "Include smaller markets" actually reaches, and why it has to.
+ *
+ * The toggle used to relax only the *filter* — every category's volume floor
+ * drops to 8% of itself, sports from $250,000 to $20,000 — while the *fetch*
+ * stayed at the default four global pages. Measured on the November 2026 grid
+ * (2026-10-31 → 2026-12-05), Gamma lists over 2,100 open events and the 400th
+ * by volume carries ~$35,000:
+ *
+ *   rank    1   $78.7M
+ *   rank  400   ~$35–40K   ← the default fetch stops here
+ *   rank 1000   ~$16–20K
+ *   rank 1500   ~$3–4K
+ *   rank 2000   ~$700
+ *
+ * So the relaxed floor sat *below* the cut, and the toggle could only reveal
+ * what a tag slice happened to have pulled. A reader who turned it on to see
+ * Wizards vs. Pistons got nothing, because that game was never downloaded.
+ *
+ * Twelve pages reaches rank 1,200 — under the relaxed sports floor — and the
+ * per-sport discovery slices are pulled too, since those are where individual
+ * fixtures live. The curation tier is left alone: events below even the relaxed
+ * floor are still dropped unless a Sport sub-filter asked for them, so the
+ * response grows by what the reader can actually see and no more.
+ *
+ * It costs: roughly 20 more upstream pages at ~10MB each on a cold build, which
+ * is why it is opt-in, cached under its own key like before, charged as a deep
+ * build by the rate limiter, and given a longer deadline.
+ */
+const SMALLER_OPEN_PAGES = 12;
+const SMALLER_CLOSED_PAGES = 3;
+const SMALLER_BUILD_TIMEOUT_MS = 55_000;
+
 const CACHE_TTL_MS = 5 * 60 * 1000;
 /** Serve a stale entry rather than nothing when Gamma is down. */
 const STALE_TTL_MS = 6 * 60 * 60 * 1000;
 /**
- * Raised from 24 alongside the second fetch tier.
+ * Raised from 24, then again alongside the per-category tiers.
  *
- * A range can now occupy up to four entries — shallow/deep × curated/smaller —
- * so the old ceiling held six ranges rather than the two dozen it was chosen
- * for. Deep entries are the expensive ones to rebuild, and evicting the shallow
- * neighbours a reader is about to navigate back to defeats the point of the
- * cache. Entries are bounded by the range ceiling and expire on the same
- * timers, so the memory this costs is bounded too.
+ * A range occupies up to eight entries — four tier states (neither, sports,
+ * esports, both) × curated/smaller — so a flat ceiling of 48 held six ranges
+ * rather than the two dozen it was chosen for. Targeted entries are the
+ * expensive ones to rebuild, and evicting the untargeted neighbours a reader is
+ * about to navigate back to defeats the point of the cache. Entries are bounded
+ * by the range ceiling and expire on the same timers, so the memory this costs
+ * is bounded too.
  */
-const MAX_CACHED_RANGES = 48;
+const MAX_CACHED_RANGES = 64;
 
 type CacheEntry = { dataset: CuratedDataset; storedAt: number };
 
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<CuratedDataset>>();
 
+/**
+ * One entry per *distinct build*, with the two selections in separate fields.
+ *
+ * The tier segment is `tierKey`'s four-value output — `""`, `"sports"`,
+ * `"esports"`, `"esports,sports"` — and never a sport or game id. That is
+ * deliberate on both counts. Sport and eSport cannot overwrite each other's
+ * entry, which is the cache half of the isolation guarantee; and the key space
+ * stays bounded by the range ceiling rather than by the 2^19 subsets a reader
+ * could tick, so no request can mint unbounded cache entries. Which *ids* were
+ * ticked never reaches the server: it only ever needs to know whether a
+ * category asked for its targeted tier, and the filtering by id happens in the
+ * browser against the events it already has.
+ */
 function cacheKey(
   start: string,
   end: string,
   includeSmaller: boolean,
-  includeTargeted: boolean,
+  targeted: TargetedTiers,
 ): string {
   return `${start}|${end}|${includeSmaller ? "small" : "curated"}|${
-    includeTargeted ? "deep" : "shallow"
+    tierKey(targeted) || "shallow"
   }`;
 }
 
@@ -136,14 +188,15 @@ export type BuildCuratedOptions = {
   end: string;
   includeSmallerMarkets?: boolean;
   /**
-   * Fetch and keep the Sport/eSport sub-filter tier.
+   * Which categories' Sport/eSport sub-filter tier to fetch and keep.
    *
-   * Costs 15 extra upstream pages (~40MB) and roughly doubles the response, so
-   * it is opt-in per request rather than a property of the calendar. Cached
-   * under its own key, so a deep build never displaces the shallow one a
-   * different reader is using.
+   * Costs up to 15 extra upstream pages (~40MB) and roughly doubles the
+   * response, so it is opt-in per request rather than a property of the
+   * calendar. Cached under its own key, so a targeted build never displaces the
+   * untargeted one a different reader is using — and `{sports:true}` never
+   * displaces `{esports:true}`.
    */
-  includeTargeted?: boolean;
+  targeted?: TargetedTiers;
   signal?: AbortSignal;
   now?: Date;
   /** Extra pages for wide ranges such as a calendar feed. */
@@ -167,9 +220,9 @@ export function isRangeWarm(
   start: string,
   end: string,
   includeSmallerMarkets = false,
-  includeTargeted = false,
+  targeted: TargetedTiers = NO_TARGETED_TIERS,
 ): boolean {
-  const entry = cache.get(cacheKey(start, end, includeSmallerMarkets, includeTargeted));
+  const entry = cache.get(cacheKey(start, end, includeSmallerMarkets, targeted));
   if (!entry) return false;
   return Date.now() - entry.storedAt <= CACHE_TTL_MS;
 }
@@ -181,14 +234,14 @@ export async function buildCuratedDataset(
     start,
     end,
     includeSmallerMarkets = false,
-    includeTargeted = false,
+    targeted = NO_TARGETED_TIERS,
     signal,
     now,
     openPages,
     closedPages,
   } = options;
 
-  const key = cacheKey(start, end, includeSmallerMarkets, includeTargeted);
+  const key = cacheKey(start, end, includeSmallerMarkets, targeted);
 
   const cached = read(key);
   if (cached && !cached.stale) return cached.dataset;
@@ -212,7 +265,10 @@ export async function buildCuratedDataset(
    * aborts the underlying requests rather than merely abandoning them.
    */
   const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(), BUILD_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => deadline.abort(),
+    includeSmallerMarkets ? SMALLER_BUILD_TIMEOUT_MS : BUILD_TIMEOUT_MS,
+  );
 
   const task = (async (): Promise<CuratedDataset> => {
     try {
@@ -220,15 +276,21 @@ export async function buildCuratedDataset(
       const raw: GammaEvent[] = await fetchEventsInRange({
         ...padded,
         signal: signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal,
-        openPages,
-        closedPages,
-        deep: includeTargeted,
+        openPages: openPages ?? (includeSmallerMarkets ? SMALLER_OPEN_PAGES : undefined),
+        closedPages: closedPages ?? (includeSmallerMarkets ? SMALLER_CLOSED_PAGES : undefined),
+        // Which slices to *fetch*. Smaller markets pulls the per-sport pages as
+        // well; the curation below still receives the request's own tiers, so
+        // nothing under the relaxed floor survives unless a sub-filter asked.
+        targeted: includeSmallerMarkets ? { ...targeted, sports: true } : targeted,
       });
 
       const { events, stats } = curateEvents(raw, {
         now,
         includeSmallerMarkets,
-        includeTargeted,
+        targeted,
+        // Every event over its category's volume floor, however many share a
+        // day. See `CurationOptions.broadDailyCaps`.
+        broadDailyCaps: false,
       });
 
       const dataset: CuratedDataset = {
@@ -284,8 +346,8 @@ export type BuildFeedOptions = {
   monthsAhead?: number;
   monthsBehind?: number;
   includeSmallerMarkets?: boolean;
-  /** Carry the Sport/eSport sub-filter tier — see `BuildCuratedOptions`. */
-  includeTargeted?: boolean;
+  /** Carry the Sport/eSport sub-filter tiers — see `BuildCuratedOptions`. */
+  targeted?: TargetedTiers;
   signal?: AbortSignal;
   now?: Date;
 };
@@ -321,7 +383,7 @@ export async function buildFeedDataset(
     monthsAhead = FEED_MONTHS_AHEAD,
     monthsBehind = FEED_MONTHS_BEHIND,
     includeSmallerMarkets = false,
-    includeTargeted = false,
+    targeted = NO_TARGETED_TIERS,
     signal,
     now = new Date(),
   } = options;
@@ -337,7 +399,7 @@ export async function buildFeedDataset(
         start: start.toISOString(),
         end: end.toISOString(),
         includeSmallerMarkets,
-        includeTargeted,
+        targeted,
         signal,
         now,
       });

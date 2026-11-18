@@ -16,9 +16,20 @@ import type { NextConfig } from "next";
  * their chrome, which is a social-engineering vector in its own right — and
  * this site had no protection at all.
  */
+
+/*
+ * `next dev` sets NODE_ENV to development; `next build` and `next start` set it
+ * to production. The distinction buys back React's dev tooling: the development
+ * build calls eval() to rebuild server-side error stacks in the browser, and
+ * under a policy without 'unsafe-eval' React gives that up and logs a violation
+ * instead. Production React never calls eval, so the policy that actually ships
+ * is byte-for-byte what it was.
+ */
+const isDev = process.env.NODE_ENV === "development";
+
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.googletagmanager.com`,
   "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com",
   "img-src 'self' data: blob: https://polymarket-upload.s3.us-east-2.amazonaws.com https://www.google-analytics.com https://www.googletagmanager.com",
   "style-src 'self' 'unsafe-inline'",
